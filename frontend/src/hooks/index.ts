@@ -1,20 +1,20 @@
 /**
- * Custom hooks for telemetry data management and playback.
+ * Custom hooks for Autocross Telemetry frontend.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import * as api from '@/services/api';
 import type {
   RunSummary,
   RunData,
   PlaybackData,
-  PlaybackState,
   PlaybackSample,
-  DEFAULT_PLAYBACK,
+  PlaybackState,
+  ViewportState,
 } from '@/types';
-import * as api from '@/services/api';
 
 // ============================================================================
-// useRuns - Manage run list and loading
+// useRuns - Fetch and manage run list
 // ============================================================================
 
 interface UseRunsResult {
@@ -115,7 +115,7 @@ interface UsePlaybackResult {
   seek: (time: number) => void;
   setSpeed: (speed: number) => void;
   toggleLoop: () => void;
-  setState: (state: PlaybackState) => void;
+  setState: (state: PlaybackState | ((prev: PlaybackState) => PlaybackState)) => void;
 }
 
 export function usePlayback(
@@ -135,19 +135,45 @@ export function usePlayback(
 
   const lastFrameTime = useRef<number>(0);
   const animationRef = useRef<number | null>(null);
+  
+  // Use refs to avoid stale closure issues in animation loop
+  const playbackSpeedRef = useRef(state.playbackSpeed);
+  const loopingRef = useRef(state.looping);
+  const isPlayingRef = useRef(state.isPlaying);
+  
+  // Keep refs in sync with state
+  useEffect(() => {
+    playbackSpeedRef.current = state.playbackSpeed;
+  }, [state.playbackSpeed]);
+  
+  useEffect(() => {
+    loopingRef.current = state.looping;
+  }, [state.looping]);
+  
+  useEffect(() => {
+    isPlayingRef.current = state.isPlaying;
+  }, [state.isPlaying]);
 
   // Calculate max duration across selected runs
-  const maxDuration = Array.from(selectedRuns)
-    .map((id) => loadedRuns.get(id)?.data.metadata.duration_s ?? 0)
-    .reduce((max, d) => Math.max(max, d), 0);
+  const maxDuration = useMemo(() => {
+    const durations = Array.from(selectedRuns)
+      .map((id) => loadedRuns.get(id)?.data.metadata.duration_s ?? 0);
+    return Math.max(...durations, 0.1);
+  }, [loadedRuns, selectedRuns]);
+  
+  // Use ref for maxDuration in animation loop
+  const maxDurationRef = useRef(maxDuration);
+  useEffect(() => {
+    maxDurationRef.current = maxDuration;
+  }, [maxDuration]);
 
-  // Interpolate sample at time
+  // Get sample at specific time with interpolation
   const getSampleAtTime = useCallback(
     (playback: PlaybackData, time: number): PlaybackSample => {
-      const { samples } = playback;
+      const samples = playback.samples;
       if (samples.length === 0) {
         return {
-          time: 0,
+          time,
           x: 0,
           y: 0,
           speed: 0,
@@ -160,21 +186,28 @@ export function usePlayback(
         };
       }
 
-      // Find surrounding samples
-      let i = 0;
-      while (i < samples.length - 1 && samples[i + 1].time < time) {
-        i++;
+      // Find bracketing samples
+      let i0 = 0;
+      let i1 = samples.length - 1;
+
+      for (let i = 0; i < samples.length - 1; i++) {
+        if (samples[i].time <= time && samples[i + 1].time >= time) {
+          i0 = i;
+          i1 = i + 1;
+          break;
+        }
       }
 
-      if (i >= samples.length - 1) {
-        return samples[samples.length - 1];
-      }
+      const s0 = samples[i0];
+      const s1 = samples[i1];
 
-      const s0 = samples[i];
-      const s1 = samples[i + 1];
-      const t = (time - s0.time) / (s1.time - s0.time || 1);
+      // Clamp to bounds
+      if (time <= s0.time) return s0;
+      if (time >= s1.time) return s1;
 
-      // Linear interpolation with validity
+      // Interpolate
+      const t = (time - s0.time) / (s1.time - s0.time);
+
       const x = interpolateValue(s0.x, s1.x, t, s0.valid?.x, s1.valid?.x);
       const y = interpolateValue(s0.y, s1.y, t, s0.valid?.y, s1.valid?.y);
       const speed = interpolateValue(
@@ -245,7 +278,7 @@ export function usePlayback(
     setCurrentSamples(samples);
   }, [state.currentTime, loadedRuns, selectedRuns, getSampleAtTime]);
 
-  // Animation loop
+  // Animation loop - FIXED: removed redundant ref check, proper first-frame handling
   useEffect(() => {
     if (!state.isPlaying) {
       if (animationRef.current) {
@@ -255,46 +288,77 @@ export function usePlayback(
       return;
     }
 
+    // Animation is starting - initialize frame time
+    lastFrameTime.current = 0;
+    
     const animate = (timestamp: number) => {
+      // First frame: just record the time, don't advance yet
       if (lastFrameTime.current === 0) {
         lastFrameTime.current = timestamp;
+        // Schedule next frame immediately
+        animationRef.current = requestAnimationFrame(animate);
+        return;
       }
 
       const deltaMs = timestamp - lastFrameTime.current;
       lastFrameTime.current = timestamp;
 
-      const deltaS = (deltaMs / 1000) * state.playbackSpeed;
-      let newTime = state.currentTime + deltaS;
-
-      // Handle end of playback
-      if (newTime >= maxDuration) {
-        if (state.looping) {
-          newTime = 0;
-        } else {
-          setState((prev) => ({ ...prev, isPlaying: false, currentTime: maxDuration }));
-          return;
-        }
+      // Skip if no meaningful time has passed (shouldn't happen after first frame)
+      if (deltaMs <= 0) {
+        animationRef.current = requestAnimationFrame(animate);
+        return;
       }
 
-      setState((prev) => ({ ...prev, currentTime: newTime }));
+      // Use functional setState to get current state and avoid stale closure
+      setState((prev) => {
+        // If somehow not playing anymore, don't update
+        if (!prev.isPlaying) {
+          return prev;
+        }
+        
+        // Read current values from refs (which are kept in sync)
+        const speed = playbackSpeedRef.current;
+        const looping = loopingRef.current;
+        const duration = maxDurationRef.current;
+        
+        const deltaS = (deltaMs / 1000) * speed;
+        let newTime = prev.currentTime + deltaS;
+
+        // Handle end of playback
+        if (newTime >= duration) {
+          if (looping) {
+            newTime = newTime % duration; // Wrap around smoothly
+          } else {
+            // Stop at end
+            isPlayingRef.current = false;
+            return { ...prev, isPlaying: false, currentTime: duration };
+          }
+        }
+
+        return { ...prev, currentTime: newTime };
+      });
+
+      // Continue animation loop
       animationRef.current = requestAnimationFrame(animate);
     };
 
-    lastFrameTime.current = 0;
     animationRef.current = requestAnimationFrame(animate);
 
     return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
       }
     };
-  }, [state.isPlaying, state.playbackSpeed, state.looping, maxDuration]);
+  }, [state.isPlaying]); // Only depend on isPlaying - other values accessed via refs
 
   const play = useCallback(() => {
+    isPlayingRef.current = true;
     setState((prev) => ({ ...prev, isPlaying: true }));
   }, []);
 
   const pause = useCallback(() => {
+    isPlayingRef.current = false;
     setState((prev) => ({ ...prev, isPlaying: false }));
   }, []);
 
@@ -303,11 +367,15 @@ export function usePlayback(
   }, []);
 
   const setSpeed = useCallback((speed: number) => {
+    playbackSpeedRef.current = speed;
     setState((prev) => ({ ...prev, playbackSpeed: speed }));
   }, []);
 
   const toggleLoop = useCallback(() => {
-    setState((prev) => ({ ...prev, looping: !prev.looping }));
+    setState((prev) => {
+      loopingRef.current = !prev.looping;
+      return { ...prev, looping: !prev.looping };
+    });
   }, []);
 
   return {
@@ -321,6 +389,65 @@ export function usePlayback(
     setState,
   };
 }
+
+// ============================================================================
+// useViewport - Manage canvas viewport (pan/zoom)
+// ============================================================================
+
+interface UseViewportResult {
+  viewport: ViewportState;
+  setViewport: (viewport: ViewportState) => void;
+  fitToRuns: (runs: RunData[]) => void;
+}
+
+export function useViewport(initialViewport: ViewportState): UseViewportResult {
+  const [viewport, setViewport] = useState<ViewportState>(initialViewport);
+
+  const fitToRuns = useCallback((runs: RunData[]) => {
+    if (runs.length === 0) return;
+
+    // Calculate bounding box across all runs
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const run of runs) {
+      const [runMinX, runMinY, runMaxX, runMaxY] = run.metadata.bounding_box;
+      minX = Math.min(minX, runMinX);
+      minY = Math.min(minY, runMinY);
+      maxX = Math.max(maxX, runMaxX);
+      maxY = Math.max(maxY, runMaxY);
+    }
+
+    // Add padding
+    const padding = 20;
+    const width = maxX - minX || 100;
+    const height = maxY - minY || 100;
+
+    // Assume a reasonable canvas size (will be adjusted by canvas component)
+    const canvasWidth = 800;
+    const canvasHeight = 600;
+
+    // Calculate scale to fit
+    const scaleX = (canvasWidth - padding * 2) / width;
+    const scaleY = (canvasHeight - padding * 2) / height;
+    const scale = Math.min(scaleX, scaleY, 50); // Cap at 50 px/m
+
+    setViewport({
+      centerX: (minX + maxX) / 2,
+      centerY: (minY + maxY) / 2,
+      scale,
+      rotation: 0,
+    });
+  }, []);
+
+  return { viewport, setViewport, fitToRuns };
+}
+
+// ============================================================================
+// Helper functions
+// ============================================================================
 
 function interpolateValue(
   v0: number,
@@ -357,78 +484,21 @@ function interpolateAngle(
   if (!a0Valid && !a1Valid) {
     return { value: 0, valid: false };
   }
-  if (a0Valid && a1Valid) {
-    let diff = a1 - a0;
-    if (diff > 180) diff -= 360;
-    if (diff < -180) diff += 360;
-    return { value: (a0 + diff * t + 360) % 360, valid: true };
+  if (!a0Valid) {
+    return { value: a1, valid: true };
   }
-  if (a1Valid) {
-    return { value: (a1 + 360) % 360, valid: true };
+  if (!a1Valid) {
+    return { value: a0, valid: true };
   }
-  return { value: (a0 + 360) % 360, valid: true };
-}
 
-// ============================================================================
-// useViewport - Manage viewport state with fit-to-runs
-// ============================================================================
+  // Handle angle wraparound
+  let diff = a1 - a0;
+  if (diff > 180) diff -= 360;
+  if (diff < -180) diff += 360;
 
-import type { ViewportState } from '@/types';
+  let result = a0 + diff * t;
+  if (result < 0) result += 360;
+  if (result >= 360) result -= 360;
 
-interface UseViewportResult {
-  viewport: ViewportState;
-  setViewport: (viewport: ViewportState) => void;
-  fitToRuns: (runs: RunData[]) => void;
-}
-
-export function useViewport(initialViewport: ViewportState): UseViewportResult {
-  const [viewport, setViewport] = useState<ViewportState>(initialViewport);
-
-  const fitToRuns = useCallback(
-    (runs: RunData[]) => {
-      if (runs.length === 0) return;
-
-      // Calculate combined bounding box
-      let minX = Infinity,
-        minY = Infinity,
-        maxX = -Infinity,
-        maxY = -Infinity;
-
-      for (const run of runs) {
-        const [rMinX, rMinY, rMaxX, rMaxY] = run.metadata.bounding_box;
-        minX = Math.min(minX, rMinX);
-        minY = Math.min(minY, rMinY);
-        maxX = Math.max(maxX, rMaxX);
-        maxY = Math.max(maxY, rMaxY);
-      }
-
-      // Add padding
-      const padding = 20; // meters
-      minX -= padding;
-      minY -= padding;
-      maxX += padding;
-      maxY += padding;
-
-      // Calculate center
-      const centerX = (minX + maxX) / 2;
-      const centerY = (minY + maxY) / 2;
-
-      // Calculate scale to fit (assuming 800x600 canvas for now)
-      const rangeX = maxX - minX;
-      const rangeY = maxY - minY;
-      const scaleX = 800 / rangeX;
-      const scaleY = 600 / rangeY;
-      const scale = Math.min(scaleX, scaleY) * 0.9; // 90% to leave margin
-
-      setViewport({
-        centerX,
-        centerY,
-        scale: Math.max(0.5, Math.min(50, scale)),
-        rotation: 0,
-      });
-    },
-    []
-  );
-
-  return { viewport, setViewport, fitToRuns };
+  return { value: result, valid: true };
 }

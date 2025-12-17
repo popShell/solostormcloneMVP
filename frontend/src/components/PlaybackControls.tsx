@@ -10,7 +10,7 @@ import type { PlaybackState } from '@/types';
 interface PlaybackControlsProps {
   state: PlaybackState;
   duration: number;
-  onChange: (state: PlaybackState) => void;
+  onChange: (state: PlaybackState | ((prev: PlaybackState) => PlaybackState)) => void;
 }
 
 const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4];
@@ -20,49 +20,64 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
   duration,
   onChange,
 }) => {
+  // Use functional updates to avoid stale closure issues
   const handlePlayPause = useCallback(() => {
-    onChange({
-      ...state,
-      isPlaying: !state.isPlaying,
-    });
-  }, [state, onChange]);
+    onChange((prev) => ({
+      ...prev,
+      isPlaying: !prev.isPlaying,
+    }));
+  }, [onChange]);
 
   const handleSeek = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const newTime = parseFloat(e.target.value);
-      onChange({
-        ...state,
+      onChange((prev) => ({
+        ...prev,
         currentTime: newTime,
         isPlaying: false, // Pause when scrubbing
-      });
+      }));
     },
-    [state, onChange]
+    [onChange]
   );
 
   const handleSpeedChange = useCallback(
     (speed: number) => {
-      onChange({
-        ...state,
+      onChange((prev) => ({
+        ...prev,
         playbackSpeed: speed,
-      });
+      }));
     },
-    [state, onChange]
+    [onChange]
   );
 
   const handleLoopToggle = useCallback(() => {
-    onChange({
-      ...state,
-      looping: !state.looping,
-    });
-  }, [state, onChange]);
+    onChange((prev) => ({
+      ...prev,
+      looping: !prev.looping,
+    }));
+  }, [onChange]);
 
   const handleReset = useCallback(() => {
-    onChange({
-      ...state,
+    onChange((prev) => ({
+      ...prev,
       currentTime: 0,
       isPlaying: false,
-    });
-  }, [state, onChange]);
+    }));
+  }, [onChange]);
+
+  const handleStepBack = useCallback(() => {
+    onChange((prev) => ({
+      ...prev,
+      currentTime: Math.max(0, prev.currentTime - 0.1),
+    }));
+  }, [onChange]);
+
+  const handleStepForward = useCallback(() => {
+    onChange((prev) => ({
+      ...prev,
+      currentTime: Math.min(duration, prev.currentTime + 0.1),
+    }));
+  }, [onChange, duration]);
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -83,6 +98,15 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           ⏮
         </button>
 
+        {/* Step Back Button */}
+        <button
+          onClick={handleStepBack}
+          style={styles.iconButton}
+          title="Step back 0.1s"
+        >
+          ⏪
+        </button>
+
         {/* Play/Pause Button */}
         <button
           onClick={handlePlayPause}
@@ -90,6 +114,15 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           title={state.isPlaying ? 'Pause' : 'Play'}
         >
           {state.isPlaying ? '⏸' : '▶'}
+        </button>
+
+        {/* Step Forward Button */}
+        <button
+          onClick={handleStepForward}
+          style={styles.iconButton}
+          title="Step forward 0.1s"
+        >
+          ⏩
         </button>
 
         {/* Time Display */}
