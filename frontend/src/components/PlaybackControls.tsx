@@ -1,0 +1,236 @@
+/**
+ * PlaybackControls - Controls for telemetry playback.
+ * 
+ * Provides play/pause, scrubbing, speed control, and time display.
+ */
+
+import React, { useCallback } from 'react';
+import type { PlaybackState } from '@/types';
+
+interface PlaybackControlsProps {
+  state: PlaybackState;
+  duration: number;
+  onChange: (state: PlaybackState) => void;
+}
+
+const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4];
+
+export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
+  state,
+  duration,
+  onChange,
+}) => {
+  const handlePlayPause = useCallback(() => {
+    onChange({
+      ...state,
+      isPlaying: !state.isPlaying,
+    });
+  }, [state, onChange]);
+
+  const handleSeek = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const newTime = parseFloat(e.target.value);
+      onChange({
+        ...state,
+        currentTime: newTime,
+        isPlaying: false, // Pause when scrubbing
+      });
+    },
+    [state, onChange]
+  );
+
+  const handleSpeedChange = useCallback(
+    (speed: number) => {
+      onChange({
+        ...state,
+        playbackSpeed: speed,
+      });
+    },
+    [state, onChange]
+  );
+
+  const handleLoopToggle = useCallback(() => {
+    onChange({
+      ...state,
+      looping: !state.looping,
+    });
+  }, [state, onChange]);
+
+  const handleReset = useCallback(() => {
+    onChange({
+      ...state,
+      currentTime: 0,
+      isPlaying: false,
+    });
+  }, [state, onChange]);
+
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = (seconds % 60).toFixed(1);
+    return `${mins}:${secs.padStart(4, '0')}`;
+  };
+
+  return (
+    <div style={styles.container}>
+      {/* Main Controls Row */}
+      <div style={styles.mainRow}>
+        {/* Reset Button */}
+        <button
+          onClick={handleReset}
+          style={styles.iconButton}
+          title="Reset to start"
+        >
+          ⏮
+        </button>
+
+        {/* Play/Pause Button */}
+        <button
+          onClick={handlePlayPause}
+          style={styles.playButton}
+          title={state.isPlaying ? 'Pause' : 'Play'}
+        >
+          {state.isPlaying ? '⏸' : '▶'}
+        </button>
+
+        {/* Time Display */}
+        <div style={styles.timeDisplay}>
+          <span style={styles.currentTime}>{formatTime(state.currentTime)}</span>
+          <span style={styles.timeSeparator}>/</span>
+          <span style={styles.duration}>{formatTime(duration)}</span>
+        </div>
+
+        {/* Loop Toggle */}
+        <button
+          onClick={handleLoopToggle}
+          style={{
+            ...styles.iconButton,
+            backgroundColor: state.looping ? '#3b82f6' : 'transparent',
+          }}
+          title={state.looping ? 'Loop enabled' : 'Loop disabled'}
+        >
+          🔁
+        </button>
+      </div>
+
+      {/* Timeline Slider */}
+      <div style={styles.timelineRow}>
+        <input
+          type="range"
+          min={0}
+          max={duration}
+          step={0.01}
+          value={state.currentTime}
+          onChange={handleSeek}
+          style={styles.slider}
+        />
+      </div>
+
+      {/* Speed Controls */}
+      <div style={styles.speedRow}>
+        <span style={styles.speedLabel}>Speed:</span>
+        {SPEED_OPTIONS.map((speed) => (
+          <button
+            key={speed}
+            onClick={() => handleSpeedChange(speed)}
+            style={{
+              ...styles.speedButton,
+              backgroundColor:
+                state.playbackSpeed === speed ? '#3b82f6' : '#2a2a4a',
+            }}
+          >
+            {speed}×
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const styles: Record<string, React.CSSProperties> = {
+  container: {
+    backgroundColor: '#1a1a2e',
+    padding: '12px 16px',
+    borderRadius: '8px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  mainRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+  },
+  iconButton: {
+    width: '36px',
+    height: '36px',
+    borderRadius: '6px',
+    border: '1px solid #3a3a5a',
+    backgroundColor: 'transparent',
+    color: '#ffffff',
+    cursor: 'pointer',
+    fontSize: '16px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playButton: {
+    width: '48px',
+    height: '48px',
+    borderRadius: '50%',
+    border: 'none',
+    backgroundColor: '#3b82f6',
+    color: '#ffffff',
+    cursor: 'pointer',
+    fontSize: '20px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeDisplay: {
+    fontFamily: 'monospace',
+    fontSize: '14px',
+    color: '#ffffff',
+    marginLeft: 'auto',
+  },
+  currentTime: {
+    color: '#3b82f6',
+    fontWeight: 'bold',
+  },
+  timeSeparator: {
+    color: '#666',
+    margin: '0 4px',
+  },
+  duration: {
+    color: '#888',
+  },
+  timelineRow: {
+    width: '100%',
+  },
+  slider: {
+    width: '100%',
+    height: '8px',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    accentColor: '#3b82f6',
+  },
+  speedRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  speedLabel: {
+    color: '#888',
+    fontSize: '12px',
+    marginRight: '4px',
+  },
+  speedButton: {
+    padding: '4px 12px',
+    borderRadius: '4px',
+    border: '1px solid #3a3a5a',
+    color: '#ffffff',
+    cursor: 'pointer',
+    fontSize: '12px',
+  },
+};
+
+export default PlaybackControls;
