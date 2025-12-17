@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { CourseEditor } from './CourseEditor';
+import CourseEditor from './CourseEditor';
 import { useCourse, useGeofencing, exportCourseToJson, importCourseFromJson } from '@/hooks/course';
 import type { CourseSector } from '@/types/course';
 

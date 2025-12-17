@@ -58,16 +58,10 @@ export class ApiError extends Error {
 // Folder Management
 // ============================================================================
 
-/**
- * Get current data folder info.
- */
 export async function getFolderInfo(): Promise<FolderInfo> {
   return apiFetch<FolderInfo>('/folder');
 }
 
-/**
- * Set the data folder path.
- */
 export async function setFolder(path: string): Promise<FolderInfo> {
   return apiFetch<FolderInfo>('/folder', {
     method: 'POST',
@@ -75,9 +69,6 @@ export async function setFolder(path: string): Promise<FolderInfo> {
   });
 }
 
-/**
- * Rescan the current data folder.
- */
 export async function rescanFolder(): Promise<FolderInfo> {
   return apiFetch<FolderInfo>('/folder/rescan', {
     method: 'POST',
@@ -88,30 +79,18 @@ export async function rescanFolder(): Promise<FolderInfo> {
 // Run Management
 // ============================================================================
 
-/**
- * List all available runs.
- */
 export async function listRuns(): Promise<RunSummary[]> {
   return apiFetch<RunSummary[]>('/runs');
 }
 
-/**
- * Get metadata for a specific run.
- */
 export async function getRunMetadata(runId: string): Promise<RunMetadata> {
   return apiFetch<RunMetadata>(`/runs/${runId}`);
 }
 
-/**
- * Get full telemetry data for a run.
- */
 export async function getRunData(runId: string): Promise<RunData> {
   return apiFetch<RunData>(`/runs/${runId}/data`);
 }
 
-/**
- * Reload a run with optional origin override.
- */
 export async function reloadRun(
   runId: string,
   origin?: { lat?: number; lon?: number; alt?: number }
@@ -126,9 +105,6 @@ export async function reloadRun(
   });
 }
 
-/**
- * Get playback data for a run.
- */
 export async function getPlaybackData(
   runId: string,
   options?: {
@@ -159,9 +135,6 @@ export async function getPlaybackData(
 // Health Check
 // ============================================================================
 
-/**
- * Check API health.
- */
 export async function checkHealth(): Promise<{
   status: string;
   data_folder: string | null;
@@ -171,12 +144,9 @@ export async function checkHealth(): Promise<{
 }
 
 // ============================================================================
-// Convenience Hooks Data Fetchers
+// Convenience Functions
 // ============================================================================
 
-/**
- * Load a run with both full data and playback data.
- */
 export async function loadRunComplete(
   runId: string,
   playbackRate: number = 30

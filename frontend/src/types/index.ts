@@ -42,6 +42,12 @@ export interface RunMetadata {
   time_range: [number, number]; // [start_s, end_s]
 }
 
+export interface ChannelInfo {
+  unit: string;
+  provenance: 'measured' | 'derived';
+  frame?: string;
+}
+
 export interface RunData {
   metadata: RunMetadata;
   timestamps: number[];
@@ -82,38 +88,14 @@ export interface PlaybackData {
 }
 
 // ============================================================================
-// Channel Metadata
+// UI State Types
 // ============================================================================
 
-export interface ChannelInfo {
-  unit: string;
-  provenance: 'measured' | 'derived';
-  frame?: string | null;
-}
-
-// ============================================================================
-// Folder Types
-// ============================================================================
-
-export interface FolderInfo {
-  path: string | null;
-  run_count: number;
-}
-
-// ============================================================================
-// Visualization Types (Frontend-only)
-// ============================================================================
-
-export type ColorMode = 'speed' | 'lateral_g' | 'longitudinal_g' | 'total_g' | 'solid';
-
-export interface VisualizationSettings {
-  colorMode: ColorMode;
-  showPath: boolean;
-  showAccelVectors: boolean;
-  accelVectorScale: number;
-  pathWidth: number;
-  carSize: number;
-  trailLength: number; // seconds of trail to show, 0 = full path
+export interface PlaybackState {
+  isPlaying: boolean;
+  currentTime: number;
+  playbackSpeed: number;
+  looping: boolean;
 }
 
 export interface ViewportState {
@@ -123,19 +105,23 @@ export interface ViewportState {
   rotation: number; // degrees
 }
 
-export interface PlaybackState {
-  isPlaying: boolean;
-  currentTime: number;
-  playbackSpeed: number; // 0.5, 1.0, 2.0, etc.
-  looping: boolean;
+export type ColorMode = 'speed' | 'lateral_g' | 'longitudinal_g' | 'total_g' | 'solid';
+
+export interface VisualizationSettings {
+  colorMode: ColorMode;
+  showAccelerationVectors: boolean;
+  showPositionMarker: boolean;
+  trailLength: number; // seconds of trail to show, 0 for full
+  pathWidth: number;
 }
 
-export interface RunDisplayState {
-  runId: string;
-  visible: boolean;
-  color: string;
-  data: RunData | null;
-  playbackData: PlaybackData | null;
+// ============================================================================
+// API Response Types
+// ============================================================================
+
+export interface FolderInfo {
+  path: string | null;
+  run_count: number;
 }
 
 // ============================================================================
@@ -145,29 +131,29 @@ export interface RunDisplayState {
 export interface ColorScale {
   min: number;
   max: number;
-  colors: string[]; // Gradient stops
+  colors: string[];
 }
 
 export const DEFAULT_COLOR_SCALES: Record<ColorMode, ColorScale> = {
   speed: {
     min: 0,
-    max: 30, // m/s (~67 mph)
-    colors: ['#3b82f6', '#22c55e', '#eab308', '#ef4444'], // blue -> green -> yellow -> red
+    max: 30,
+    colors: ['#3b82f6', '#22c55e', '#eab308', '#ef4444'],
   },
   lateral_g: {
     min: -1.5,
     max: 1.5,
-    colors: ['#ef4444', '#fbbf24', '#22c55e', '#fbbf24', '#ef4444'], // red (left) -> green (straight) -> red (right)
+    colors: ['#ef4444', '#fbbf24', '#22c55e', '#fbbf24', '#ef4444'],
   },
   longitudinal_g: {
     min: -1.0,
     max: 1.0,
-    colors: ['#ef4444', '#fbbf24', '#22c55e'], // red (braking) -> yellow -> green (accel)
+    colors: ['#ef4444', '#fbbf24', '#22c55e'],
   },
   total_g: {
     min: 0,
     max: 2.0,
-    colors: ['#22c55e', '#eab308', '#ef4444'], // green -> yellow -> red
+    colors: ['#22c55e', '#eab308', '#ef4444'],
   },
   solid: {
     min: 0,
@@ -176,42 +162,13 @@ export const DEFAULT_COLOR_SCALES: Record<ColorMode, ColorScale> = {
   },
 };
 
-// ============================================================================
-// Default Values
-// ============================================================================
-
-export const DEFAULT_VISUALIZATION_SETTINGS: VisualizationSettings = {
-  colorMode: 'speed',
-  showPath: true,
-  showAccelVectors: false,
-  accelVectorScale: 10,
-  pathWidth: 3,
-  carSize: 8,
-  trailLength: 0, // Full path
-};
-
-export const DEFAULT_VIEWPORT: ViewportState = {
-  centerX: 0,
-  centerY: 0,
-  scale: 5, // 5 pixels per meter
-  rotation: 0,
-};
-
-export const DEFAULT_PLAYBACK: PlaybackState = {
-  isPlaying: false,
-  currentTime: 0,
-  playbackSpeed: 1.0,
-  looping: true,
-};
-
-// Run colors for multi-run display
 export const RUN_COLORS = [
-  '#3b82f6', // blue
-  '#ef4444', // red
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#8b5cf6', // purple
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-  '#84cc16', // lime
+  '#3b82f6',
+  '#ef4444',
+  '#22c55e',
+  '#f59e0b',
+  '#8b5cf6',
+  '#ec4899',
+  '#06b6d4',
+  '#84cc16',
 ];
