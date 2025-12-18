@@ -8,10 +8,24 @@ import { TrackCanvas } from '@/components/TrackCanvas';
 import { PlaybackControls } from '@/components/PlaybackControls';
 import { VisualizationPanel } from '@/components/VisualizationPanel';
 import CourseEditorPage from '@/components/CourseEditorPage';
+import { PlaybackTelemetryInspector } from '@/components/PlaybackTelemetryInspector';
 import { useRuns, useRunData, usePlayback, useViewport } from '@/hooks';
-import type { ColorMode, VisualizationSettings, ViewportState } from '@/types';
+import type { DisplayUnits, VisualizationSettings, ViewportState } from '@/types';
+import { RUN_COLORS } from '@/types';
 
 type AppView = 'telemetry' | 'course-editor';
+
+const THEME_VARS: React.CSSProperties = {
+  ['--bg' as any]: '#0f1115',
+  ['--surface' as any]: '#151922',
+  ['--surface2' as any]: '#1b2230',
+  ['--border' as any]: '#2b3242',
+  ['--text' as any]: '#e5e7eb',
+  ['--muted' as any]: '#9aa3b2',
+  ['--accent' as any]: '#4fb3a6',
+  ['--accent2' as any]: '#d6b36b',
+  ['--danger' as any]: '#d16d6d',
+} as React.CSSProperties;
 
 const INITIAL_VIEWPORT: ViewportState = {
   centerX: 0,
@@ -28,18 +42,23 @@ const INITIAL_VIS_SETTINGS: VisualizationSettings = {
   pathWidth: 3,
 };
 
+const INITIAL_DISPLAY_UNITS: DisplayUnits = {
+  speed: 'mph',
+  yawRate: 'deg_s',
+};
+
 export const App: React.FC = () => {
   // Current view
   const [currentView, setCurrentView] = useState<AppView>('telemetry');
 
   // Run management
   const { runs, isLoading, error, refresh } = useRuns();
-  const { loadedRuns, loadingRuns, loadRun, unloadRun } = useRunData();
+  const { loadedRuns, loadingRuns, loadRun } = useRunData();
   const [selectedRuns, setSelectedRuns] = useState<Set<string>>(new Set());
   const [visibleRuns, setVisibleRuns] = useState<Set<string>>(new Set());
 
   // Playback
-  const { state: playbackState, currentSamples, play, pause, seek, setSpeed, toggleLoop, setState: setPlaybackState } = usePlayback(
+  const { state: playbackState, currentSamples, setState: setPlaybackState } = usePlayback(
     loadedRuns,
     selectedRuns
   );
@@ -49,6 +68,7 @@ export const App: React.FC = () => {
 
   // Visualization settings
   const [visSettings, setVisSettings] = useState<VisualizationSettings>(INITIAL_VIS_SETTINGS);
+  const [displayUnits, setDisplayUnits] = useState<DisplayUnits>(INITIAL_DISPLAY_UNITS);
 
   // Calculate max duration from loaded runs
   const maxDuration = useMemo(() => {
@@ -122,11 +142,6 @@ export const App: React.FC = () => {
       .filter((r): r is NonNullable<typeof r> => r !== null);
   }, [visibleRuns, loadedRuns, currentSamples]);
 
-  // Handle color mode change
-  const handleColorModeChange = useCallback((mode: ColorMode) => {
-    setVisSettings((prev) => ({ ...prev, colorMode: mode }));
-  }, []);
-
   // Handle fit to runs button
   const handleFitToRuns = useCallback(() => {
     const runsToFit = Array.from(selectedRuns)
@@ -167,6 +182,15 @@ export const App: React.FC = () => {
             settings={visSettings}
             currentTime={playbackState.currentTime}
           />
+          <PlaybackTelemetryInspector
+            runs={visibleRunData.map((r, idx) => ({
+              id: r.id,
+              color: RUN_COLORS[idx % RUN_COLORS.length],
+              data: r.data,
+              sample: r.sample,
+            }))}
+            units={displayUnits}
+          />
         </div>
 
         {/* Playback Controls */}
@@ -186,13 +210,15 @@ export const App: React.FC = () => {
           onSettingsChange={setVisSettings}
           onFitToRuns={handleFitToRuns}
           hasRuns={selectedRuns.size > 0}
+          units={displayUnits}
+          onUnitsChange={setDisplayUnits}
         />
       </div>
     </div>
   );
 
   return (
-    <div style={styles.container}>
+    <div style={{ ...THEME_VARS, ...styles.container }}>
       {/* Navigation Header */}
       <header style={styles.header}>
         <div style={styles.headerLeft}>
@@ -232,8 +258,8 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     height: '100vh',
-    backgroundColor: '#0a0a1a',
-    color: '#ffffff',
+    backgroundColor: 'var(--bg)',
+    color: 'var(--text)',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
   },
   header: {
@@ -242,8 +268,8 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     padding: '0 20px',
     height: '56px',
-    backgroundColor: '#12122a',
-    borderBottom: '1px solid #2a2a4a',
+    backgroundColor: 'var(--surface)',
+    borderBottom: '1px solid var(--border)',
     flexShrink: 0,
   },
   headerLeft: {
@@ -270,7 +296,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '8px 16px',
     fontSize: '14px',
     fontWeight: 500,
-    color: '#aaa',
+    color: 'var(--muted)',
     backgroundColor: 'transparent',
     border: '1px solid transparent',
     borderRadius: '6px',
@@ -278,9 +304,9 @@ const styles: Record<string, React.CSSProperties> = {
     transition: 'all 0.2s',
   },
   navButtonActive: {
-    color: '#fff',
-    backgroundColor: '#3b82f6',
-    borderColor: '#3b82f6',
+    color: 'var(--bg)',
+    backgroundColor: 'var(--accent)',
+    borderColor: 'var(--accent)',
   },
   appContent: {
     display: 'flex',
@@ -289,8 +315,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   sidebar: {
     width: '280px',
-    backgroundColor: '#12122a',
-    borderRight: '1px solid #2a2a4a',
+    backgroundColor: 'var(--surface)',
+    borderRight: '1px solid var(--border)',
     overflow: 'auto',
   },
   main: {
@@ -306,13 +332,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
   controls: {
     padding: '12px',
-    backgroundColor: '#0a0a1a',
-    borderTop: '1px solid #2a2a4a',
+    backgroundColor: 'var(--bg)',
+    borderTop: '1px solid var(--border)',
   },
   rightSidebar: {
     width: '240px',
-    backgroundColor: '#12122a',
-    borderLeft: '1px solid #2a2a4a',
+    backgroundColor: 'var(--surface)',
+    borderLeft: '1px solid var(--border)',
     overflow: 'auto',
   },
 };

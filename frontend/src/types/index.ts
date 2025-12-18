@@ -105,6 +105,14 @@ export interface ViewportState {
   rotation: number; // degrees
 }
 
+export type SpeedUnit = 'mph' | 'kph' | 'mps';
+export type YawRateUnit = 'deg_s' | 'rad_s';
+
+export interface DisplayUnits {
+  speed: SpeedUnit;
+  yawRate: YawRateUnit;
+}
+
 export type ColorMode = 'speed' | 'lateral_g' | 'longitudinal_g' | 'total_g' | 'solid';
 
 export interface VisualizationSettings {
@@ -138,37 +146,37 @@ export const DEFAULT_COLOR_SCALES: Record<ColorMode, ColorScale> = {
   speed: {
     min: 0,
     max: 30,
-    colors: ['#3b82f6', '#22c55e', '#eab308', '#ef4444'],
+    colors: ['#4fb3a6', '#7bbf93', '#d6b36b', '#d16d6d'],
   },
   lateral_g: {
     min: -1.5,
     max: 1.5,
-    colors: ['#ef4444', '#fbbf24', '#22c55e', '#fbbf24', '#ef4444'],
+    colors: ['#d16d6d', '#d6b36b', '#7bbf93', '#d6b36b', '#d16d6d'],
   },
   longitudinal_g: {
     min: -1.0,
     max: 1.0,
-    colors: ['#ef4444', '#fbbf24', '#22c55e'],
+    colors: ['#d16d6d', '#d6b36b', '#7bbf93'],
   },
   total_g: {
     min: 0,
     max: 2.0,
-    colors: ['#22c55e', '#eab308', '#ef4444'],
+    colors: ['#7bbf93', '#d6b36b', '#d16d6d'],
   },
   solid: {
     min: 0,
     max: 1,
-    colors: ['#3b82f6'],
+    colors: ['#4fb3a6'],
   },
 };
 
 export const RUN_COLORS = [
-  '#3b82f6',
-  '#ef4444',
-  '#22c55e',
-  '#f59e0b',
-  '#8b5cf6',
-  '#ec4899',
-  '#06b6d4',
-  '#84cc16',
+  '#4fb3a6',
+  '#d16d6d',
+  '#7bbf93',
+  '#d6b36b',
+  '#b48ead',
+  '#88a1b8',
+  '#8fbcbb',
+  '#a3be8c',
 ];

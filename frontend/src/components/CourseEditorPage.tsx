@@ -11,7 +11,6 @@
 import React, { useState, useCallback } from 'react';
 import CourseEditor from './CourseEditor';
 import { useCourse, useGeofencing, exportCourseToJson, importCourseFromJson } from '@/hooks/course';
-import type { CourseSector } from '@/types/course';
 
 interface CourseEditorPageProps {
   onBack?: () => void;
@@ -20,6 +19,9 @@ interface CourseEditorPageProps {
 export const CourseEditorPage: React.FC<CourseEditorPageProps> = ({ onBack }) => {
   const {
     course,
+    addElement,
+    updateElements,
+    removeElements,
     addSector,
     updateSector,
     removeSector,
@@ -36,11 +38,6 @@ export const CourseEditorPage: React.FC<CourseEditorPageProps> = ({ onBack }) =>
   
   const [showSectorPanel, setShowSectorPanel] = useState(true);
   const [editingCourseInfo, setEditingCourseInfo] = useState(false);
-  
-  // Handle course change from editor
-  const handleCourseChange = useCallback((newCourse: typeof course) => {
-    setCourse(newCourse);
-  }, [setCourse]);
   
   // Export course
   const handleExport = useCallback(() => {
@@ -71,7 +68,7 @@ export const CourseEditorPage: React.FC<CourseEditorPageProps> = ({ onBack }) =>
         const json = event.target?.result as string;
         const imported = importCourseFromJson(json);
         if (imported) {
-          setCourse(imported);
+          setCourse(imported, { resetHistory: true });
         } else {
           alert('Invalid course file');
         }
@@ -191,9 +188,10 @@ export const CourseEditorPage: React.FC<CourseEditorPageProps> = ({ onBack }) =>
         <div style={styles.editorContainer}>
           <CourseEditor
             course={course}
-            onCourseChange={handleCourseChange}
-            width={900}
-            height={600}
+            addElement={addElement}
+            updateElements={updateElements}
+            removeElements={removeElements}
+            addSector={addSector}
           />
         </div>
         
@@ -222,7 +220,7 @@ export const CourseEditorPage: React.FC<CourseEditorPageProps> = ({ onBack }) =>
                   Double-click to complete a sector polygon.
                 </div>
               ) : (
-                course.sectors.map((sector, index) => (
+                course.sectors.map((sector) => (
                   <div key={sector.id} style={styles.sectorItem}>
                     <div style={styles.sectorHeader}>
                       <div
@@ -258,7 +256,7 @@ export const CourseEditorPage: React.FC<CourseEditorPageProps> = ({ onBack }) =>
                       
                       <div style={styles.colorPicker}>
                         <span style={styles.colorLabel}>Color:</span>
-                        {['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6'].map(color => (
+                        {['#d16d6d', '#d6b36b', '#7bbf93', '#4fb3a6', '#b48ead', '#88a1b8'].map(color => (
                           <button
                             key={color}
                             onClick={() => handleSectorColorChange(sector.id, color)}
@@ -295,7 +293,7 @@ export const CourseEditorPage: React.FC<CourseEditorPageProps> = ({ onBack }) =>
                       {st.deltaFromTarget !== undefined && (
                         <span style={{
                           ...styles.sectorTimeDelta,
-                          color: st.deltaFromTarget > 0 ? '#ef4444' : '#22c55e',
+                          color: st.deltaFromTarget > 0 ? 'var(--danger)' : '#7bbf93',
                         }}>
                           {st.deltaFromTarget > 0 ? '+' : ''}{st.deltaFromTarget.toFixed(3)}
                         </span>
@@ -355,16 +353,16 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     height: '100vh',
-    backgroundColor: '#0f0f1a',
-    color: '#ffffff',
+    backgroundColor: 'var(--bg)',
+    color: 'var(--text)',
   },
   header: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '12px 20px',
-    backgroundColor: '#1a1a2e',
-    borderBottom: '1px solid #2a2a4a',
+    backgroundColor: 'var(--surface)',
+    borderBottom: '1px solid var(--border)',
   },
   headerLeft: {
     display: 'flex',
@@ -379,9 +377,9 @@ const styles: Record<string, React.CSSProperties> = {
   backButton: {
     padding: '8px 16px',
     borderRadius: '6px',
-    border: '1px solid #3a3a5a',
+    border: '1px solid var(--border)',
     backgroundColor: 'transparent',
-    color: '#ffffff',
+    color: 'var(--text)',
     cursor: 'pointer',
     fontSize: '14px',
   },
@@ -394,25 +392,25 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '20px',
     fontWeight: 'bold',
     backgroundColor: 'transparent',
-    border: '1px solid #3b82f6',
+    border: '1px solid var(--accent)',
     borderRadius: '4px',
-    color: '#ffffff',
+    color: 'var(--text)',
     padding: '4px 8px',
     outline: 'none',
   },
   headerButton: {
     padding: '8px 16px',
     borderRadius: '6px',
-    border: '1px solid #3a3a5a',
+    border: '1px solid var(--border)',
     backgroundColor: 'transparent',
-    color: '#ffffff',
+    color: 'var(--text)',
     cursor: 'pointer',
     fontSize: '13px',
   },
   headerDivider: {
     width: '1px',
     height: '24px',
-    backgroundColor: '#3a3a5a',
+    backgroundColor: 'var(--border)',
     margin: '0 8px',
   },
   main: {
@@ -423,12 +421,14 @@ const styles: Record<string, React.CSSProperties> = {
   editorContainer: {
     flex: 1,
     padding: '16px',
-    overflow: 'auto',
+    overflow: 'hidden',
+    minWidth: 0,
+    minHeight: 0,
   },
   sectorPanel: {
     width: '280px',
-    backgroundColor: '#1a1a2e',
-    borderLeft: '1px solid #2a2a4a',
+    backgroundColor: 'var(--surface)',
+    borderLeft: '1px solid var(--border)',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
@@ -438,7 +438,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '12px 16px',
-    borderBottom: '1px solid #2a2a4a',
+    borderBottom: '1px solid var(--border)',
   },
   panelTitle: {
     margin: 0,
@@ -451,7 +451,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '4px',
     border: 'none',
     backgroundColor: 'transparent',
-    color: '#888',
+    color: 'var(--muted)',
     cursor: 'pointer',
     fontSize: '18px',
   },
@@ -463,12 +463,13 @@ const styles: Record<string, React.CSSProperties> = {
   emptyState: {
     padding: '20px',
     textAlign: 'center',
-    color: '#888',
+    color: 'var(--muted)',
     fontSize: '13px',
     lineHeight: '1.5',
   },
   sectorItem: {
-    backgroundColor: '#2a2a4a',
+    backgroundColor: 'var(--surface2)',
+    border: '1px solid var(--border)',
     borderRadius: '8px',
     padding: '12px',
     marginBottom: '8px',
@@ -488,7 +489,7 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: 'transparent',
     border: '1px solid transparent',
     borderRadius: '4px',
-    color: '#ffffff',
+    color: 'var(--text)',
     padding: '4px 8px',
     fontSize: '14px',
     outline: 'none',
@@ -499,21 +500,21 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '4px',
     border: 'none',
     backgroundColor: 'transparent',
-    color: '#ef4444',
+    color: 'var(--danger)',
     cursor: 'pointer',
     fontSize: '18px',
   },
   sectorDetails: {
     marginTop: '8px',
     paddingTop: '8px',
-    borderTop: '1px solid #3a3a5a',
+    borderTop: '1px solid var(--border)',
   },
   checkboxLabel: {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
     fontSize: '12px',
-    color: '#888',
+    color: 'var(--muted)',
     cursor: 'pointer',
   },
   colorPicker: {
@@ -524,7 +525,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   colorLabel: {
     fontSize: '12px',
-    color: '#888',
+    color: 'var(--muted)',
     marginRight: '4px',
   },
   colorOption: {
@@ -536,12 +537,12 @@ const styles: Record<string, React.CSSProperties> = {
   },
   sectorInfo: {
     fontSize: '11px',
-    color: '#666',
+    color: 'var(--muted)',
     marginTop: '8px',
   },
   panelDivider: {
     height: '1px',
-    backgroundColor: '#2a2a4a',
+    backgroundColor: 'var(--border)',
     margin: '8px 0',
   },
   timingSection: {
@@ -550,13 +551,13 @@ const styles: Record<string, React.CSSProperties> = {
   timingSectionTitle: {
     margin: '0 0 12px 0',
     fontSize: '14px',
-    color: '#888',
+    color: 'var(--muted)',
   },
   sectorTimeRow: {
     display: 'flex',
     alignItems: 'center',
     padding: '6px 0',
-    borderBottom: '1px solid #2a2a4a',
+    borderBottom: '1px solid var(--border)',
   },
   sectorTimeName: {
     flex: 1,
@@ -577,27 +578,27 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '8px',
     marginTop: '12px',
     borderRadius: '6px',
-    border: '1px solid #3a3a5a',
+    border: '1px solid var(--border)',
     backgroundColor: 'transparent',
-    color: '#888',
+    color: 'var(--muted)',
     cursor: 'pointer',
     fontSize: '12px',
   },
   helpSection: {
     padding: '12px 16px',
-    borderTop: '1px solid #2a2a4a',
+    borderTop: '1px solid var(--border)',
     marginTop: 'auto',
   },
   helpTitle: {
     margin: '0 0 8px 0',
     fontSize: '12px',
-    color: '#666',
+    color: 'var(--muted)',
   },
   helpList: {
     margin: 0,
     padding: '0 0 0 16px',
     fontSize: '11px',
-    color: '#666',
+    color: 'var(--muted)',
     lineHeight: '1.6',
   },
   showPanelButton: {
@@ -606,11 +607,11 @@ const styles: Record<string, React.CSSProperties> = {
     top: '50%',
     transform: 'translateY(-50%)',
     padding: '12px 8px',
-    backgroundColor: '#1a1a2e',
-    border: '1px solid #2a2a4a',
+    backgroundColor: 'var(--surface)',
+    border: '1px solid var(--border)',
     borderRight: 'none',
     borderRadius: '8px 0 0 8px',
-    color: '#888',
+    color: 'var(--muted)',
     cursor: 'pointer',
     fontSize: '12px',
   },
@@ -618,10 +619,10 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     gap: '24px',
     padding: '8px 20px',
-    backgroundColor: '#1a1a2e',
-    borderTop: '1px solid #2a2a4a',
+    backgroundColor: 'var(--surface)',
+    borderTop: '1px solid var(--border)',
     fontSize: '12px',
-    color: '#888',
+    color: 'var(--muted)',
   },
 };
 

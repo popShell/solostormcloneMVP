@@ -61,7 +61,7 @@ export const RunList: React.FC<RunListProps> = ({
                 key={run.id}
                 style={{
                   ...styles.runCard,
-                  backgroundColor: isSelected ? '#2a2a4a' : '#1a1a2e',
+                  backgroundColor: isSelected ? 'var(--surface2)' : 'var(--surface)',
                 }}
                 onClick={() => onRunToggle(run.id, !isSelected)}
               >
@@ -91,14 +91,14 @@ export const RunList: React.FC<RunListProps> = ({
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    backgroundColor: '#0f0f1a',
+    backgroundColor: 'var(--bg)',
     height: '100%',
     display: 'flex',
     flexDirection: 'column',
   },
   header: {
     padding: '16px',
-    borderBottom: '1px solid #2a2a4a',
+    borderBottom: '1px solid var(--border)',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -111,18 +111,18 @@ const styles: Record<string, React.CSSProperties> = {
   refreshButton: {
     padding: '8px',
     borderRadius: '6px',
-    border: '1px solid #3a3a5a',
+    border: '1px solid var(--border)',
     backgroundColor: 'transparent',
-    color: '#ffffff',
+    color: 'var(--text)',
     cursor: 'pointer',
   },
   error: {
     margin: '8px 16px',
     padding: '8px',
-    backgroundColor: '#3b1a1a',
-    border: '1px solid #ef4444',
+    backgroundColor: 'rgba(209, 109, 109, 0.15)',
+    border: '1px solid var(--danger)',
     borderRadius: '4px',
-    color: '#ef4444',
+    color: 'var(--danger)',
     fontSize: '12px',
   },
   list: {
@@ -133,7 +133,7 @@ const styles: Record<string, React.CSSProperties> = {
   empty: {
     padding: '24px 16px',
     textAlign: 'center',
-    color: '#666',
+    color: 'var(--muted)',
   },
   runCard: {
     padding: '12px',
@@ -143,6 +143,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '12px',
     cursor: 'pointer',
+    border: '1px solid var(--border)',
   },
   checkbox: {
     paddingTop: '2px',
@@ -156,7 +157,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   runMeta: {
     fontSize: '12px',
-    color: '#888',
+    color: 'var(--muted)',
     marginTop: '4px',
   },
 };

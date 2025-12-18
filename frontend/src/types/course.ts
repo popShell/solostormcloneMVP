@@ -391,14 +391,14 @@ export const DEFAULT_CONE_COLORS = {
 } as const;
 
 export const DEFAULT_SECTOR_COLORS = [
-  '#ef4444', // Red
-  '#f97316', // Orange
-  '#eab308', // Yellow
-  '#22c55e', // Green
-  '#3b82f6', // Blue
-  '#8b5cf6', // Purple
-  '#ec4899', // Pink
-  '#06b6d4', // Cyan
+  '#d16d6d', // Muted Red
+  '#d6b36b', // Muted Amber
+  '#7bbf93', // Muted Green
+  '#4fb3a6', // Muted Teal
+  '#b48ead', // Muted Purple
+  '#88a1b8', // Muted Blue-Gray
+  '#8fbcbb', // Muted Cyan
+  '#a3be8c', // Muted Lime
 ];
 
 export const DEFAULT_EDITOR_VIEWPORT: EditorViewport = {
@@ -407,7 +407,7 @@ export const DEFAULT_EDITOR_VIEWPORT: EditorViewport = {
   scale: 10,          // 10 pixels per meter
   rotation: 0,
   gridVisible: true,
-  gridSize: 5,        // 5 meter grid
+  gridSize: 1,        // 1 meter snap grid (minor lines appear when zoomed in)
   snapToGrid: true,
 };
 

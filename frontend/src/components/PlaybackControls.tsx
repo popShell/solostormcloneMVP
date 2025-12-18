@@ -137,7 +137,8 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           onClick={handleLoopToggle}
           style={{
             ...styles.iconButton,
-            backgroundColor: state.looping ? '#3b82f6' : 'transparent',
+            backgroundColor: state.looping ? 'var(--accent)' : 'transparent',
+            color: state.looping ? 'var(--bg)' : 'var(--text)',
           }}
           title={state.looping ? 'Loop enabled' : 'Loop disabled'}
         >
@@ -168,7 +169,8 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
             style={{
               ...styles.speedButton,
               backgroundColor:
-                state.playbackSpeed === speed ? '#3b82f6' : '#2a2a4a',
+                state.playbackSpeed === speed ? 'var(--accent)' : 'var(--surface2)',
+              color: state.playbackSpeed === speed ? 'var(--bg)' : 'var(--text)',
             }}
           >
             {speed}×
@@ -181,12 +183,13 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    backgroundColor: '#1a1a2e',
+    backgroundColor: 'var(--surface)',
     padding: '12px 16px',
     borderRadius: '8px',
     display: 'flex',
     flexDirection: 'column',
     gap: '8px',
+    border: '1px solid var(--border)',
   },
   mainRow: {
     display: 'flex',
@@ -197,9 +200,9 @@ const styles: Record<string, React.CSSProperties> = {
     width: '36px',
     height: '36px',
     borderRadius: '6px',
-    border: '1px solid #3a3a5a',
+    border: '1px solid var(--border)',
     backgroundColor: 'transparent',
-    color: '#ffffff',
+    color: 'var(--text)',
     cursor: 'pointer',
     fontSize: '16px',
     display: 'flex',
@@ -211,8 +214,8 @@ const styles: Record<string, React.CSSProperties> = {
     height: '48px',
     borderRadius: '50%',
     border: 'none',
-    backgroundColor: '#3b82f6',
-    color: '#ffffff',
+    backgroundColor: 'var(--accent)',
+    color: 'var(--bg)',
     cursor: 'pointer',
     fontSize: '20px',
     display: 'flex',
@@ -222,19 +225,19 @@ const styles: Record<string, React.CSSProperties> = {
   timeDisplay: {
     fontFamily: 'monospace',
     fontSize: '14px',
-    color: '#ffffff',
+    color: 'var(--text)',
     marginLeft: 'auto',
   },
   currentTime: {
-    color: '#3b82f6',
+    color: 'var(--accent)',
     fontWeight: 'bold',
   },
   timeSeparator: {
-    color: '#666',
+    color: 'var(--muted)',
     margin: '0 4px',
   },
   duration: {
-    color: '#888',
+    color: 'var(--muted)',
   },
   timelineRow: {
     width: '100%',
@@ -244,7 +247,7 @@ const styles: Record<string, React.CSSProperties> = {
     height: '8px',
     borderRadius: '4px',
     cursor: 'pointer',
-    accentColor: '#3b82f6',
+    accentColor: 'var(--accent)',
   },
   speedRow: {
     display: 'flex',
@@ -252,15 +255,14 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '8px',
   },
   speedLabel: {
-    color: '#888',
+    color: 'var(--muted)',
     fontSize: '12px',
     marginRight: '4px',
   },
   speedButton: {
     padding: '4px 12px',
     borderRadius: '4px',
-    border: '1px solid #3a3a5a',
-    color: '#ffffff',
+    border: '1px solid var(--border)',
     cursor: 'pointer',
     fontSize: '12px',
   },

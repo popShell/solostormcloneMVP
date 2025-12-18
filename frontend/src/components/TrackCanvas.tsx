@@ -5,6 +5,7 @@
 
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import type { ViewportState, VisualizationSettings, PlaybackSample, RunData } from '@/types';
+import { RUN_COLORS } from '@/types';
 
 interface RunDisplay {
   id: string;
@@ -26,12 +27,19 @@ interface Point {
   y: number;
 }
 
+const CANVAS_THEME = {
+  bg: '#111318',
+  grid: '#222834',
+  gridMajor: '#2f3747',
+  text: '#e5e7eb',
+  border: '#2b3242',
+};
+
 export const TrackCanvas: React.FC<TrackCanvasProps> = ({
   runs,
   viewport,
   onViewportChange,
   settings,
-  currentTime = 0,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -76,12 +84,38 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
     if (!ctx) return;
 
     // Clear
-    ctx.fillStyle = '#1a1a2e';
+    ctx.fillStyle = CANVAS_THEME.bg;
     ctx.fillRect(0, 0, size.width, size.height);
 
     // Draw grid
-    ctx.strokeStyle = '#2a2a4a';
-    ctx.lineWidth = 1;
+    const gridSizeMinorPx = 1 * viewport.scale;
+    const showMinor = gridSizeMinorPx >= 14;
+
+    // Minor grid (1m)
+    if (showMinor) {
+      ctx.strokeStyle = CANVAS_THEME.grid;
+      ctx.lineWidth = 1;
+      const gridSize = 1 * viewport.scale;
+      const offsetX = (size.width / 2 - viewport.centerX * viewport.scale) % gridSize;
+      const offsetY = (size.height / 2 + viewport.centerY * viewport.scale) % gridSize;
+
+      for (let x = offsetX; x < size.width; x += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, size.height);
+        ctx.stroke();
+      }
+      for (let y = offsetY; y < size.height; y += gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(size.width, y);
+        ctx.stroke();
+      }
+    }
+
+    // Major grid (10m)
+    ctx.strokeStyle = CANVAS_THEME.gridMajor;
+    ctx.lineWidth = 1.5;
     const gridSize = 10 * viewport.scale;
     const offsetX = (size.width / 2 - viewport.centerX * viewport.scale) % gridSize;
     const offsetY = (size.height / 2 + viewport.centerY * viewport.scale) % gridSize;
@@ -100,14 +134,13 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
     }
 
     // Draw runs
-    const colors = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b'];
     runs.forEach((run, idx) => {
       if (!run.data) return;
       
       const { x, y } = run.data;
       if (!x || !y || x.length < 2) return;
 
-      ctx.strokeStyle = colors[idx % colors.length];
+      ctx.strokeStyle = RUN_COLORS[idx % RUN_COLORS.length];
       ctx.lineWidth = settings.pathWidth || 3;
       ctx.beginPath();
 
@@ -127,11 +160,11 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
       // Draw current position marker
       if (run.sample && run.sample.x !== undefined && run.sample.y !== undefined) {
         const pos = worldToScreen(run.sample.x, run.sample.y);
-        ctx.fillStyle = colors[idx % colors.length];
+        ctx.fillStyle = RUN_COLORS[idx % RUN_COLORS.length];
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, 8, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = '#ffffff';
+        ctx.strokeStyle = CANVAS_THEME.text;
         ctx.lineWidth = 2;
         ctx.stroke();
       }
@@ -140,8 +173,8 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
     // Scale bar
     const scaleMeters = 10;
     const scalePixels = scaleMeters * viewport.scale;
-    ctx.strokeStyle = '#ffffff';
-    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = CANVAS_THEME.text;
+    ctx.fillStyle = CANVAS_THEME.text;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(20, size.height - 30);

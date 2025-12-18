@@ -7,7 +7,7 @@
  * - Real-time sector timing based on GPS position
  */
 
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import type {
   CourseDefinition,
   CourseElement,
@@ -32,6 +32,7 @@ interface UseCourseResult {
   // Element operations
   addElement: (element: CourseElement) => void;
   updateElement: (id: string, updates: Partial<CourseElement>) => void;
+  updateElements: (updates: Array<{ id: string; updates: Partial<CourseElement> }>, actionLabel?: string) => void;
   removeElement: (id: string) => void;
   removeElements: (ids: string[]) => void;
   
@@ -50,7 +51,7 @@ interface UseCourseResult {
   canRedo: boolean;
   
   // Bulk operations
-  setCourse: (course: CourseDefinition) => void;
+  setCourse: (course: CourseDefinition, options?: { resetHistory?: boolean }) => void;
   clearCourse: () => void;
 }
 
@@ -112,6 +113,26 @@ export function useCourse(initialCourse?: CourseDefinition): UseCourseResult {
       },
     }));
   }, [saveToHistory]);
+
+  const updateElements = useCallback(
+    (updates: Array<{ id: string; updates: Partial<CourseElement> }>, actionLabel?: string) => {
+      if (updates.length === 0) return;
+      const updateMap = new Map(updates.map((u) => [u.id, u.updates] as const));
+      saveToHistory(actionLabel ?? 'Update elements');
+      setCourseState((prev) => ({
+        ...prev,
+        elements: prev.elements.map((el) => {
+          const elUpdates = updateMap.get(el.id);
+          return elUpdates ? ({ ...el, ...elUpdates } as CourseElement) : el;
+        }),
+        metadata: {
+          ...prev.metadata,
+          updatedAt: new Date().toISOString(),
+        },
+      }));
+    },
+    [saveToHistory]
+  );
   
   const removeElement = useCallback((id: string) => {
     saveToHistory('Remove element');
@@ -218,11 +239,20 @@ export function useCourse(initialCourse?: CourseDefinition): UseCourseResult {
   const canRedo = historyIndex < history.length - 1;
   
   // Bulk operations
-  const setCourse = useCallback((newCourse: CourseDefinition) => {
-    setCourseState(newCourse);
-    setHistory([]);
-    setHistoryIndex(-1);
-  }, []);
+  const setCourse = useCallback(
+    (newCourse: CourseDefinition, options?: { resetHistory?: boolean }) => {
+      if (options?.resetHistory) {
+        setCourseState(newCourse);
+        setHistory([]);
+        setHistoryIndex(-1);
+        return;
+      }
+
+      saveToHistory('Set course');
+      setCourseState(newCourse);
+    },
+    [saveToHistory]
+  );
   
   const clearCourse = useCallback(() => {
     setCourseState(createEmptyCourse());
@@ -234,6 +264,7 @@ export function useCourse(initialCourse?: CourseDefinition): UseCourseResult {
     course,
     addElement,
     updateElement,
+    updateElements,
     removeElement,
     removeElements,
     addSector,
