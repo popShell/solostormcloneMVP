@@ -1,176 +1,228 @@
 /**
- * App - Main application component.
- * 
- * Layout:
- * - Left sidebar: Run list
- * - Center: Track canvas with playback controls
- * - Right sidebar: Visualization settings
+ * App.tsx - Main application component for Autocross Telemetry
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { RunList } from '@/components/RunList';
 import { TrackCanvas } from '@/components/TrackCanvas';
 import { PlaybackControls } from '@/components/PlaybackControls';
-import { RunList } from '@/components/RunList';
 import { VisualizationPanel } from '@/components/VisualizationPanel';
+import CourseEditorPage from '@/components/CourseEditorPage';
 import { useRuns, useRunData, usePlayback, useViewport } from '@/hooks';
-import {
-  DEFAULT_VISUALIZATION_SETTINGS,
-  DEFAULT_VIEWPORT,
-  DEFAULT_COLOR_SCALES,
-  RUN_COLORS,
-} from '@/types';
-import type { RunData, VisualizationSettings } from '@/types';
+import type { ColorMode, VisualizationSettings, ViewportState } from '@/types';
+
+type AppView = 'telemetry' | 'course-editor';
+
+const INITIAL_VIEWPORT: ViewportState = {
+  centerX: 0,
+  centerY: 0,
+  scale: 5,
+  rotation: 0,
+};
+
+const INITIAL_VIS_SETTINGS: VisualizationSettings = {
+  colorMode: 'speed',
+  showAccelerationVectors: false,
+  showPositionMarker: true,
+  trailLength: 0, // 0 = show full path
+  pathWidth: 3,
+};
 
 export const App: React.FC = () => {
-  // Data hooks
-  const { runs, isLoading: runsLoading, error: runsError, refresh } = useRuns();
+  // Current view
+  const [currentView, setCurrentView] = useState<AppView>('telemetry');
+
+  // Run management
+  const { runs, isLoading, error, refresh } = useRuns();
   const { loadedRuns, loadingRuns, loadRun, unloadRun } = useRunData();
-
-  // Selection state
   const [selectedRuns, setSelectedRuns] = useState<Set<string>>(new Set());
-
-  // Visualization state
-  const [settings, setSettings] = useState<VisualizationSettings>(
-    DEFAULT_VISUALIZATION_SETTINGS
-  );
-  const { viewport, setViewport, fitToRuns } = useViewport(DEFAULT_VIEWPORT);
+  const [visibleRuns, setVisibleRuns] = useState<Set<string>>(new Set());
 
   // Playback
-  const { state: playbackState, currentSamples, setState: setPlaybackState } =
-    usePlayback(loadedRuns, selectedRuns);
-
-  // Calculate max duration for playback controls
-  const maxDuration = useMemo(() => {
-    return Array.from(selectedRuns)
-      .map((id) => loadedRuns.get(id)?.data.metadata.duration_s ?? 0)
-      .reduce((max, d) => Math.max(max, d), 0);
-  }, [selectedRuns, loadedRuns]);
-
-  // Canvas size (responsive would be nice, but keeping simple for now)
-  const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
-
-  useEffect(() => {
-    const updateSize = () => {
-      const container = document.getElementById('canvas-container');
-      if (container) {
-        setCanvasSize({
-          width: container.clientWidth,
-          height: container.clientHeight,
-        });
-      }
-    };
-
-    updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, []);
-
-  // Handlers
-  const handleToggleRun = useCallback(
-    (runId: string) => {
-      setSelectedRuns((prev) => {
-        const next = new Set(prev);
-        if (next.has(runId)) {
-          next.delete(runId);
-        } else {
-          next.add(runId);
-        }
-        return next;
-      });
-    },
-    []
+  const { state: playbackState, currentSamples, play, pause, seek, setSpeed, toggleLoop, setState: setPlaybackState } = usePlayback(
+    loadedRuns,
+    selectedRuns
   );
 
-  const handleLoadRun = useCallback(
-    async (runId: string) => {
-      await loadRun(runId);
-      setSelectedRuns((prev) => new Set(prev).add(runId));
+  // Viewport
+  const { viewport, setViewport, fitToRuns } = useViewport(INITIAL_VIEWPORT);
+
+  // Visualization settings
+  const [visSettings, setVisSettings] = useState<VisualizationSettings>(INITIAL_VIS_SETTINGS);
+
+  // Calculate max duration from loaded runs
+  const maxDuration = useMemo(() => {
+    const durations = Array.from(selectedRuns)
+      .map((id) => loadedRuns.get(id)?.data.metadata.duration_s ?? 0);
+    return Math.max(...durations, 0.1);
+  }, [loadedRuns, selectedRuns]);
+
+  // Handle run selection toggle
+  const handleRunToggle = useCallback(
+    async (runId: string, selected: boolean) => {
+      if (selected) {
+        // Load and select
+        await loadRun(runId);
+        setSelectedRuns((prev) => new Set(prev).add(runId));
+        setVisibleRuns((prev) => new Set(prev).add(runId));
+      } else {
+        // Unselect (keep loaded for quick re-select)
+        setSelectedRuns((prev) => {
+          const next = new Set(prev);
+          next.delete(runId);
+          return next;
+        });
+        setVisibleRuns((prev) => {
+          const next = new Set(prev);
+          next.delete(runId);
+          return next;
+        });
+      }
     },
     [loadRun]
   );
 
-  const handleFitToRuns = useCallback(() => {
-    const runsData = Array.from(selectedRuns)
-      .map((id) => loadedRuns.get(id)?.data)
-      .filter((d): d is RunData => d !== undefined);
-    fitToRuns(runsData);
-  }, [selectedRuns, loadedRuns, fitToRuns]);
-
-  // Auto-fit when first run is loaded
-  useEffect(() => {
-    if (selectedRuns.size === 1) {
-      const runId = Array.from(selectedRuns)[0];
-      const run = loadedRuns.get(runId);
-      if (run) {
-        fitToRuns([run.data]);
+  // Handle visibility toggle (different from selection)
+  const handleVisibilityToggle = useCallback((runId: string, visible: boolean) => {
+    setVisibleRuns((prev) => {
+      const next = new Set(prev);
+      if (visible) {
+        next.add(runId);
+      } else {
+        next.delete(runId);
       }
+      return next;
+    });
+  }, []);
+
+  // Fit to selected runs when selection changes
+  useEffect(() => {
+    const runsToFit = Array.from(selectedRuns)
+      .map((id) => loadedRuns.get(id)?.data)
+      .filter((d): d is NonNullable<typeof d> => d !== undefined);
+
+    if (runsToFit.length > 0) {
+      fitToRuns(runsToFit);
     }
   }, [selectedRuns, loadedRuns, fitToRuns]);
 
-  // Prepare runs for canvas
-  const canvasRuns = useMemo(() => {
-    return runs
-      .filter((r) => loadedRuns.has(r.id))
-      .map((r, index) => ({
-        id: r.id,
-        data: loadedRuns.get(r.id)!.data,
-        color: RUN_COLORS[index % RUN_COLORS.length],
-        visible: selectedRuns.has(r.id),
-      }));
-  }, [runs, loadedRuns, selectedRuns]);
+  // Get visible run data for rendering
+  const visibleRunData = useMemo(() => {
+    return Array.from(visibleRuns)
+      .map((id) => {
+        const loaded = loadedRuns.get(id);
+        if (!loaded) return null;
+        return {
+          id,
+          data: loaded.data,
+          playback: loaded.playback,
+          sample: currentSamples.get(id),
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+  }, [visibleRuns, loadedRuns, currentSamples]);
 
-  return (
-    <div style={styles.container}>
+  // Handle color mode change
+  const handleColorModeChange = useCallback((mode: ColorMode) => {
+    setVisSettings((prev) => ({ ...prev, colorMode: mode }));
+  }, []);
+
+  // Handle fit to runs button
+  const handleFitToRuns = useCallback(() => {
+    const runsToFit = Array.from(selectedRuns)
+      .map((id) => loadedRuns.get(id)?.data)
+      .filter((d): d is NonNullable<typeof d> => d !== undefined);
+    
+    if (runsToFit.length > 0) {
+      fitToRuns(runsToFit);
+    }
+  }, [selectedRuns, loadedRuns, fitToRuns]);
+
+  // Render telemetry view
+  const renderTelemetryView = () => (
+    <div style={styles.appContent}>
       {/* Left Sidebar - Run List */}
-      <div style={styles.leftSidebar}>
+      <div style={styles.sidebar}>
         <RunList
           runs={runs}
           selectedRuns={selectedRuns}
+          visibleRuns={visibleRuns}
           loadingRuns={loadingRuns}
-          onToggleRun={handleToggleRun}
-          onLoadRun={handleLoadRun}
-          isLoading={runsLoading}
-          error={runsError}
+          isLoading={isLoading}
+          error={error}
+          onRunToggle={handleRunToggle}
+          onVisibilityToggle={handleVisibilityToggle}
           onRefresh={refresh}
         />
       </div>
 
       {/* Main Content */}
       <div style={styles.main}>
-        {/* Canvas Container */}
-        <div id="canvas-container" style={styles.canvasContainer}>
+        {/* Canvas */}
+        <div style={styles.canvasContainer}>
           <TrackCanvas
-            runs={canvasRuns}
-            currentSamples={currentSamples}
+            runs={visibleRunData}
             viewport={viewport}
-            settings={settings}
-            colorScales={DEFAULT_COLOR_SCALES}
             onViewportChange={setViewport}
-            width={canvasSize.width}
-            height={canvasSize.height}
+            settings={visSettings}
+            currentTime={playbackState.currentTime}
           />
         </div>
 
         {/* Playback Controls */}
-        <div style={styles.playbackContainer}>
+        <div style={styles.controls}>
           <PlaybackControls
             state={playbackState}
-            duration={maxDuration || 1}
+            duration={maxDuration}
             onChange={setPlaybackState}
           />
         </div>
       </div>
 
-      {/* Right Sidebar - Settings */}
+      {/* Right Sidebar - Visualization Settings */}
       <div style={styles.rightSidebar}>
         <VisualizationPanel
-          settings={settings}
-          viewport={viewport}
-          onSettingsChange={setSettings}
-          onViewportChange={setViewport}
+          settings={visSettings}
+          onSettingsChange={setVisSettings}
           onFitToRuns={handleFitToRuns}
+          hasRuns={selectedRuns.size > 0}
         />
       </div>
+    </div>
+  );
+
+  return (
+    <div style={styles.container}>
+      {/* Navigation Header */}
+      <header style={styles.header}>
+        <div style={styles.headerLeft}>
+          <span style={styles.logo}>🏎️</span>
+          <h1 style={styles.title}>Autocross Telemetry</h1>
+        </div>
+        <nav style={styles.nav}>
+          <button
+            style={{
+              ...styles.navButton,
+              ...(currentView === 'telemetry' ? styles.navButtonActive : {}),
+            }}
+            onClick={() => setCurrentView('telemetry')}
+          >
+            📊 Telemetry
+          </button>
+          <button
+            style={{
+              ...styles.navButton,
+              ...(currentView === 'course-editor' ? styles.navButtonActive : {}),
+            }}
+            onClick={() => setCurrentView('course-editor')}
+          >
+            🚧 Course Editor
+          </button>
+        </nav>
+      </header>
+
+      {/* View Content */}
+      {currentView === 'telemetry' ? renderTelemetryView() : <CourseEditorPage />}
     </div>
   );
 };
@@ -178,14 +230,68 @@ export const App: React.FC = () => {
 const styles: Record<string, React.CSSProperties> = {
   container: {
     display: 'flex',
+    flexDirection: 'column',
     height: '100vh',
-    backgroundColor: '#0a0a14',
+    backgroundColor: '#0a0a1a',
     color: '#ffffff',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
   },
-  leftSidebar: {
-    width: '280px',
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0 20px',
+    height: '56px',
+    backgroundColor: '#12122a',
+    borderBottom: '1px solid #2a2a4a',
     flexShrink: 0,
+  },
+  headerLeft: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+  },
+  logo: {
+    fontSize: '24px',
+  },
+  title: {
+    fontSize: '18px',
+    fontWeight: 600,
+    margin: 0,
+  },
+  nav: {
+    display: 'flex',
+    gap: '8px',
+  },
+  navButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '8px 16px',
+    fontSize: '14px',
+    fontWeight: 500,
+    color: '#aaa',
+    backgroundColor: 'transparent',
+    border: '1px solid transparent',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
+  navButtonActive: {
+    color: '#fff',
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+  },
+  appContent: {
+    display: 'flex',
+    flex: 1,
+    minHeight: 0,
+  },
+  sidebar: {
+    width: '280px',
+    backgroundColor: '#12122a',
+    borderRight: '1px solid #2a2a4a',
+    overflow: 'auto',
   },
   main: {
     flex: 1,
@@ -195,15 +301,19 @@ const styles: Record<string, React.CSSProperties> = {
   },
   canvasContainer: {
     flex: 1,
-    overflow: 'hidden',
+    position: 'relative',
+    minHeight: 0,
   },
-  playbackContainer: {
+  controls: {
     padding: '12px',
+    backgroundColor: '#0a0a1a',
     borderTop: '1px solid #2a2a4a',
   },
   rightSidebar: {
-    width: '260px',
-    flexShrink: 0,
+    width: '240px',
+    backgroundColor: '#12122a',
+    borderLeft: '1px solid #2a2a4a',
+    overflow: 'auto',
   },
 };
 
