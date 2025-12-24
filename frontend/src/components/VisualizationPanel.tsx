@@ -6,7 +6,6 @@
 import React, { useState } from 'react';
 import type {
   VisualizationSettings,
-  ColorMode,
   DisplayUnits,
   SpeedUnit,
   YawRateUnit,
@@ -46,14 +45,6 @@ interface VisualizationPanelProps {
   onFinishAngleChange: (deg: number) => void;
 }
 
-const COLOR_MODES: { value: ColorMode; label: string }[] = [
-  { value: 'speed', label: 'Speed' },
-  { value: 'lateral_g', label: 'Lateral G' },
-  { value: 'longitudinal_g', label: 'Long. G' },
-  { value: 'total_g', label: 'Total G' },
-  { value: 'solid', label: 'Solid' },
-];
-
 export const VisualizationPanel: React.FC<VisualizationPanelProps> = ({
   settings,
   onSettingsChange,
@@ -82,10 +73,6 @@ export const VisualizationPanel: React.FC<VisualizationPanelProps> = ({
 }) => {
   const [tab, setTab] = useState<'viz' | 'settings'>('viz');
 
-  const handleColorModeChange = (mode: ColorMode) => {
-    onSettingsChange({ ...settings, colorMode: mode });
-  };
-
   return (
     <div style={styles.container}>
       <div style={styles.tabRow}>
@@ -112,61 +99,87 @@ export const VisualizationPanel: React.FC<VisualizationPanelProps> = ({
       {tab === 'viz' ? (
         <>
           <div style={styles.section}>
-            <h3 style={styles.sectionTitle}>Color Mode</h3>
-            <div style={styles.buttonGroup}>
-              {COLOR_MODES.map((mode) => (
-                <button
-                  key={mode.value}
-                  onClick={() => handleColorModeChange(mode.value)}
-                  style={{
-                    ...styles.modeButton,
-                    backgroundColor: settings.colorMode === mode.value ? 'var(--accent)' : 'var(--surface2)',
-                    color: settings.colorMode === mode.value ? 'var(--bg)' : 'var(--text)',
-                  }}
-                >
-                  {mode.label}
-                </button>
-              ))}
+            <h3 style={styles.sectionTitle}>Markers & Sectors</h3>
+            <div style={styles.inlineButtons}>
+              <button
+                style={{
+                  ...styles.smallButton,
+                  backgroundColor: markerMode === 'set_start' ? 'var(--accent)' : 'var(--surface2)',
+                }}
+                onClick={() => onMarkerModeChange(markerMode === 'set_start' ? 'none' : 'set_start')}
+              >
+                Set Start
+              </button>
+              <button
+                style={{
+                  ...styles.smallButton,
+                  backgroundColor: markerMode === 'set_finish' ? 'var(--accent)' : 'var(--surface2)',
+                }}
+                onClick={() => onMarkerModeChange(markerMode === 'set_finish' ? 'none' : 'set_finish')}
+              >
+                Set Finish
+              </button>
+              <button
+                style={{
+                  ...styles.smallButton,
+                  backgroundColor: markerMode === 'add_sector' ? 'var(--accent)' : 'var(--surface2)',
+                }}
+                onClick={() => onMarkerModeChange(markerMode === 'add_sector' ? 'none' : 'add_sector')}
+              >
+                Add Sector
+              </button>
             </div>
-          </div>
 
-          <div style={styles.section}>
-            <h3 style={styles.sectionTitle}>Display</h3>
-            <label style={styles.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={settings.showAccelerationVectors}
-                onChange={() =>
-                  onSettingsChange({
-                    ...settings,
-                    showAccelerationVectors: !settings.showAccelerationVectors,
-                  })
-                }
-              />
-              Show Accel Vectors
-            </label>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button style={styles.smallButton} onClick={onClearMarkers}>Clear Start/Finish</button>
+              <button style={styles.smallButton} onClick={onClearSectors}>Clear Sectors</button>
+            </div>
 
             <div style={styles.sliderRow}>
-              <span>Path Width</span>
+              <span>Start Angle</span>
               <input
                 type="range"
-                min={1}
-                max={10}
-                value={settings.pathWidth}
-                onChange={(e) =>
-                  onSettingsChange({ ...settings, pathWidth: parseInt(e.target.value) })
-                }
+                min={-180}
+                max={180}
+                step={1}
+                value={startAngleDeg}
+                onChange={(e) => onStartAngleChange(parseInt(e.target.value, 10))}
               />
               <input
                 type="number"
-                min={1}
-                max={10}
-                value={settings.pathWidth}
+                min={-180}
+                max={180}
+                step={1}
+                value={startAngleDeg}
                 onChange={(e) =>
-                  onSettingsChange({
-                    ...settings,
-                    pathWidth: Math.max(1, Math.min(10, parseInt(e.target.value || '1', 10))),
-                  })
+                  onStartAngleChange(
+                    Math.max(-180, Math.min(180, parseInt(e.target.value || '0', 10)))
+                  )
+                }
+                style={styles.numberInput}
+              />
+            </div>
+
+            <div style={styles.sliderRow}>
+              <span>Finish Angle</span>
+              <input
+                type="range"
+                min={-180}
+                max={180}
+                step={1}
+                value={finishAngleDeg}
+                onChange={(e) => onFinishAngleChange(parseInt(e.target.value, 10))}
+              />
+              <input
+                type="number"
+                min={-180}
+                max={180}
+                step={1}
+                value={finishAngleDeg}
+                onChange={(e) =>
+                  onFinishAngleChange(
+                    Math.max(-180, Math.min(180, parseInt(e.target.value || '0', 10)))
+                  )
                 }
                 style={styles.numberInput}
               />
@@ -178,6 +191,27 @@ export const VisualizationPanel: React.FC<VisualizationPanelProps> = ({
             <button onClick={onFitToRuns} style={styles.fitButton} disabled={!hasRuns}>
               Fit to Runs
             </button>
+            <div style={{ ...styles.sliderRow, marginTop: 8 }}>
+              <span>Follow</span>
+              <div style={styles.inlineButtons}>
+                {[
+                  { id: 'manual', label: 'Manual' },
+                  { id: 'auto_center', label: 'Auto Center' },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => onSettingsChange({ ...settings, followMode: opt.id as any })}
+                    style={{
+                      ...styles.smallButton,
+                      backgroundColor: settings.followMode === opt.id ? 'var(--accent)' : 'var(--surface2)',
+                      color: settings.followMode === opt.id ? 'var(--bg)' : 'var(--text)',
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </>
       ) : (
@@ -226,6 +260,35 @@ export const VisualizationPanel: React.FC<VisualizationPanelProps> = ({
                   </button>
                 ))}
               </div>
+            </div>
+          </div>
+
+          <div style={styles.section}>
+            <h3 style={styles.sectionTitle}>Display</h3>
+            <div style={styles.sliderRow}>
+              <span>Path Width</span>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                value={settings.pathWidth}
+                onChange={(e) =>
+                  onSettingsChange({ ...settings, pathWidth: parseInt(e.target.value) })
+                }
+              />
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={settings.pathWidth}
+                onChange={(e) =>
+                  onSettingsChange({
+                    ...settings,
+                    pathWidth: Math.max(1, Math.min(10, parseInt(e.target.value || '1', 10))),
+                  })
+                }
+                style={styles.numberInput}
+              />
             </div>
           </div>
 
@@ -481,7 +544,7 @@ const styles: Record<string, React.CSSProperties> = {
   buttonGroup: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '4px',
+    gap: '8px',
   },
   modeButton: {
     padding: '8px 12px',

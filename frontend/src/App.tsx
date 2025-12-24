@@ -44,11 +44,10 @@ const INITIAL_VIEWPORT: ViewportState = {
 };
 
 const INITIAL_VIS_SETTINGS: VisualizationSettings = {
-  colorMode: 'speed',
-  showAccelerationVectors: false,
   showPositionMarker: true,
   trailLength: 0, // 0 = show full path
   pathWidth: 3,
+  followMode: 'manual',
 };
 
 const INITIAL_DISPLAY_UNITS: DisplayUnits = {
@@ -94,6 +93,50 @@ export const App: React.FC = () => {
   const [startAngleDeg, setStartAngleDeg] = useState<number>(0);
   const [finishAngleDeg, setFinishAngleDeg] = useState<number>(0);
   const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
+  const PERSIST_KEY = 'telemetry_ui_state_v1';
+
+  // Load persisted UI state
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PERSIST_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (saved.mapSettings) setMapSettings(saved.mapSettings);
+      if (saved.startMarker) setStartMarker(saved.startMarker);
+      if (saved.finishMarker) setFinishMarker(saved.finishMarker);
+      if (saved.sectors) setSectors(saved.sectors);
+      if (saved.colorPaletteId) setColorPaletteId(saved.colorPaletteId);
+      if (typeof saved.startAngleDeg === 'number') setStartAngleDeg(saved.startAngleDeg);
+      if (typeof saved.finishAngleDeg === 'number') setFinishAngleDeg(saved.finishAngleDeg);
+      if (saved.displayNames) setDisplayNames(saved.displayNames);
+    } catch (e) {
+      console.warn('Failed to load persisted UI state', e);
+    }
+  }, []);
+
+  // Persist UI state when key pieces change
+  useEffect(() => {
+    const payload = {
+      mapSettings,
+      startMarker,
+      finishMarker,
+      sectors,
+      colorPaletteId,
+      startAngleDeg,
+      finishAngleDeg,
+      displayNames,
+    };
+    localStorage.setItem(PERSIST_KEY, JSON.stringify(payload));
+  }, [
+    mapSettings,
+    startMarker,
+    finishMarker,
+    sectors,
+    colorPaletteId,
+    startAngleDeg,
+    finishAngleDeg,
+    displayNames,
+  ]);
 
   // Calculate max duration from loaded runs
   const maxDuration = useMemo(() => {
@@ -140,17 +183,6 @@ export const App: React.FC = () => {
     });
   }, []);
 
-  // Fit to selected runs when selection changes
-  useEffect(() => {
-    const runsToFit = Array.from(selectedRuns)
-      .map((id) => loadedRuns.get(id)?.data)
-      .filter((d): d is NonNullable<typeof d> => d !== undefined);
-
-    if (runsToFit.length > 0) {
-      fitToRuns(runsToFit);
-    }
-  }, [selectedRuns, loadedRuns, fitToRuns]);
-
   // Get visible run data for rendering
   const visibleRunData = useMemo(() => {
     return Array.from(visibleRuns)
@@ -166,6 +198,39 @@ export const App: React.FC = () => {
       })
       .filter((r): r is NonNullable<typeof r> => r !== null);
   }, [visibleRuns, loadedRuns, currentSamples]);
+
+  // Fit to selected runs when selection changes
+  useEffect(() => {
+    const runsToFit = Array.from(selectedRuns)
+      .map((id) => loadedRuns.get(id)?.data)
+      .filter((d): d is NonNullable<typeof d> => d !== undefined);
+
+    if (runsToFit.length > 0 && visSettings.followMode === 'manual') {
+      fitToRuns(runsToFit);
+    }
+  }, [selectedRuns, loadedRuns, fitToRuns, visSettings.followMode]);
+
+  // Auto-center camera on mean position excluding outliers (2 std dev)
+  useEffect(() => {
+    if (visSettings.followMode !== 'auto_center') return;
+    const points: { x: number; y: number }[] = [];
+    visibleRunData.forEach((r) => {
+      if (!r.sample) return;
+      points.push({ x: r.sample.x, y: r.sample.y });
+    });
+    if (points.length === 0) return;
+    const meanX = points.reduce((s, p) => s + p.x, 0) / points.length;
+    const meanY = points.reduce((s, p) => s + p.y, 0) / points.length;
+    const dists = points.map((p) => Math.hypot(p.x - meanX, p.y - meanY));
+    const meanD = dists.reduce((s, d) => s + d, 0) / dists.length;
+    const stdD = Math.sqrt(dists.reduce((s, d) => s + (d - meanD) ** 2, 0) / dists.length);
+    const filtered = points.filter((p, i) => dists[i] <= meanD + 2 * stdD);
+    const fx =
+      filtered.reduce((s, p) => s + p.x, 0) / (filtered.length || 1);
+    const fy =
+      filtered.reduce((s, p) => s + p.y, 0) / (filtered.length || 1);
+    setViewport((v) => ({ ...v, centerX: fx, centerY: fy }));
+  }, [visibleRunData, visSettings.followMode, setViewport]);
 
   // Determine master run for anchoring/map overlay
   const masterRunData = useMemo(() => {
@@ -219,6 +284,19 @@ export const App: React.FC = () => {
     setFinishMarker((prev) => (prev ? { ...prev, angleDeg: finishAngleDeg } : prev));
   }, [finishAngleDeg]);
 
+  // Keyboard shortcuts for quick marker placement
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 's') {
+        setMarkerMode((m) => (m === 'set_start' ? 'none' : 'set_start'));
+      } else if (e.key.toLowerCase() === 'f') {
+        setMarkerMode((m) => (m === 'set_finish' ? 'none' : 'set_finish'));
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   // Compute rough sector times using playback samples (nearest point to marker order)
   const sectorResults = useMemo(() => {
     const markers: TrackMarker[] = [];
@@ -238,19 +316,10 @@ export const App: React.FC = () => {
       const samples = run.playback?.samples || [];
       if (!samples.length) return;
       const times: number[] = [];
-      markers.forEach((m) => {
-        let bestDist = Number.POSITIVE_INFINITY;
-        let bestTime = NaN;
-        for (const s of samples) {
-          const dx = s.x - m.x;
-          const dy = s.y - m.y;
-          const d2 = dx * dx + dy * dy;
-          if (d2 < bestDist) {
-            bestDist = d2;
-            bestTime = s.time;
-          }
-        }
-        times.push(Number.isFinite(bestTime) ? bestTime : NaN);
+      markers.forEach((m, idxMarker) => {
+        const prev = idxMarker === 0 ? null : markers[idxMarker - 1];
+        const tCross = getCrossingTime(samples, m, prev);
+        times.push(tCross ?? NaN);
       });
 
       const splits = times.map((t, i) =>
@@ -272,6 +341,84 @@ export const App: React.FC = () => {
 
     return results;
   }, [visibleRunData, startMarker, finishMarker, sectors, displayNames]);
+
+  // Fastest split display per run (using total time)
+  const fastestTotal = useMemo(() => {
+    const totals = sectorResults.map((r) => r.total).filter((t): t is number => Number.isFinite(t));
+    if (!totals.length) return null;
+    return Math.min(...totals);
+  }, [sectorResults]);
+
+// Utility: precise gate crossing using line intersection
+function getCrossingTime(samples: any[], marker: TrackMarker, prev: TrackMarker | null): number | null {
+  if (!samples.length) return null;
+  const gateLen = 6.096; // 20 ft
+  const angle = ((marker.angleDeg ?? 0) * Math.PI) / 180;
+  const dx = Math.cos(angle) * (gateLen / 2);
+  const dy = Math.sin(angle) * (gateLen / 2);
+  const g1 = { x: marker.x - dx, y: marker.y - dy };
+  const g2 = { x: marker.x + dx, y: marker.y + dy };
+
+  for (let i = 0; i < samples.length - 1; i++) {
+    const s0 = samples[i];
+    const s1 = samples[i + 1];
+    if (!Number.isFinite(s0.x) || !Number.isFinite(s0.y) || !Number.isFinite(s1.x) || !Number.isFinite(s1.y)) {
+      continue;
+    }
+    const inter = segmentIntersection(
+      { x: s0.x, y: s0.y },
+      { x: s1.x, y: s1.y },
+      g1,
+      g2
+    );
+    if (inter) {
+      const segDx = s1.x - s0.x;
+      const segDy = s1.y - s0.y;
+      const len2 = segDx * segDx + segDy * segDy || 1;
+      const t = ((inter.x - s0.x) * segDx + (inter.y - s0.y) * segDy) / len2;
+      const time = s0.time + t * (s1.time - s0.time);
+      return time;
+    }
+  }
+  // fallback: closest point
+  let best = Number.POSITIVE_INFINITY;
+  let bestTime = null;
+  for (const s of samples) {
+    const dist2 = pointSegDist2({ x: s.x, y: s.y }, g1, g2);
+    if (dist2 < best) {
+      best = dist2;
+      bestTime = s.time;
+    }
+  }
+  return bestTime;
+}
+
+function segmentIntersection(p1: any, p2: any, p3: any, p4: any) {
+  const d = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
+  if (Math.abs(d) < 1e-9) return null;
+  const ua = ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) / d;
+  const ub = ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) / d;
+  if (ua < 0 || ua > 1 || ub < 0 || ub > 1) return null;
+  return {
+    x: p1.x + ua * (p2.x - p1.x),
+    y: p1.y + ua * (p2.y - p1.y),
+  };
+}
+
+function pointSegDist2(p: any, a: any, b: any) {
+  const vx = b.x - a.x;
+  const vy = b.y - a.y;
+  const wx = p.x - a.x;
+  const wy = p.y - a.y;
+  const c1 = vx * wx + vy * wy;
+  if (c1 <= 0) return (p.x - a.x) ** 2 + (p.y - a.y) ** 2;
+  const c2 = vx * vx + vy * vy;
+  if (c2 <= c1) return (p.x - b.x) ** 2 + (p.y - b.y) ** 2;
+  const t = c1 / c2;
+  const projx = a.x + t * vx;
+  const projy = a.y + t * vy;
+  return (p.x - projx) ** 2 + (p.y - projy) ** 2;
+}
 
   // Handle fit to runs button
   const handleFitToRuns = useCallback(() => {
@@ -332,6 +479,13 @@ export const App: React.FC = () => {
               data: r.data,
               sample: r.sample,
               nameOverride: displayNames[r.id],
+              splitDisplay:
+                sectorResults.find((sr) => sr.runId === r.id)?.total != null
+                  ? `${sectorResults.find((sr) => sr.runId === r.id)!.total!.toFixed(2)} s`
+                  : undefined,
+              isFastest:
+                fastestTotal != null &&
+                sectorResults.find((sr) => sr.runId === r.id)?.total === fastestTotal,
             }))}
             units={displayUnits}
           />
@@ -389,7 +543,7 @@ export const App: React.FC = () => {
       {/* Navigation Header */}
       <header style={styles.header}>
         <div style={styles.headerLeft}>
-          <span style={styles.logo}>🏎️</span>
+          <div style={styles.logo} />
           <h1 style={styles.title}>Autocross Telemetry</h1>
         </div>
         <nav style={styles.nav}>
@@ -400,7 +554,7 @@ export const App: React.FC = () => {
             }}
             onClick={() => setCurrentView('telemetry')}
           >
-            📊 Telemetry
+            Telemetry
           </button>
           <button
             style={{
@@ -409,7 +563,7 @@ export const App: React.FC = () => {
             }}
             onClick={() => setCurrentView('course-editor')}
           >
-            🚧 Course Editor
+            Course Editor
           </button>
         </nav>
       </header>

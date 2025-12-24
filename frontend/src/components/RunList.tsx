@@ -46,7 +46,7 @@ export const RunList: React.FC<RunListProps> = ({
           style={styles.refreshButton}
           disabled={isLoading}
         >
-          {isLoading ? '⏳' : '🔄'}
+          {isLoading ? '...' : 'Refresh'}
         </button>
       </div>
 
@@ -73,7 +73,7 @@ export const RunList: React.FC<RunListProps> = ({
                 onClick={() => onRunToggle(run.id, !isSelected)}
               >
                 <div style={styles.checkbox}>
-                  {isLoadingRun ? '⏳' : (
+                  {isLoadingRun ? '...' : (
                     <input
                       type="checkbox"
                       checked={isSelected}

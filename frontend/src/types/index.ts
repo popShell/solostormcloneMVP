@@ -113,14 +113,11 @@ export interface DisplayUnits {
   yawRate: YawRateUnit;
 }
 
-export type ColorMode = 'speed' | 'lateral_g' | 'longitudinal_g' | 'total_g' | 'solid';
-
 export interface VisualizationSettings {
-  colorMode: ColorMode;
-  showAccelerationVectors: boolean;
   showPositionMarker: boolean;
   trailLength: number; // seconds of trail to show, 0 for full
   pathWidth: number;
+  followMode?: 'manual' | 'auto_center';
 }
 
 // Map overlay / anchoring
@@ -194,30 +191,4 @@ export interface ColorScale {
   colors: string[];
 }
 
-export const DEFAULT_COLOR_SCALES: Record<ColorMode, ColorScale> = {
-  speed: {
-    min: 0,
-    max: 30,
-    colors: ['#4fb3a6', '#7bbf93', '#d6b36b', '#d16d6d'],
-  },
-  lateral_g: {
-    min: -1.5,
-    max: 1.5,
-    colors: ['#d16d6d', '#d6b36b', '#7bbf93', '#d6b36b', '#d16d6d'],
-  },
-  longitudinal_g: {
-    min: -1.0,
-    max: 1.0,
-    colors: ['#d16d6d', '#d6b36b', '#7bbf93'],
-  },
-  total_g: {
-    min: 0,
-    max: 2.0,
-    colors: ['#7bbf93', '#d6b36b', '#d16d6d'],
-  },
-  solid: {
-    min: 0,
-    max: 1,
-    colors: ['#4fb3a6'],
-  },
-};
+export const DEFAULT_COLOR_SCALES = {};

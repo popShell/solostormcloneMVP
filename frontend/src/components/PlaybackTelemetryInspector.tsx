@@ -9,6 +9,8 @@ interface InspectorRun {
   data: RunData;
   sample?: PlaybackSample;
   nameOverride?: string;
+  splitDisplay?: string;
+  isFastest?: boolean;
 }
 
 interface PlaybackTelemetryInspectorProps {
@@ -148,12 +150,16 @@ export function PlaybackTelemetryInspector({ runs, units }: PlaybackTelemetryIns
               const s = run.sample!;
               const valid = s.valid ?? {};
               const runName = run.nameOverride || run.data.metadata.name;
+              const borderColorValue = run.isFastest ? 'var(--accent)' : 'var(--border)';
               return (
-                <div key={run.id} style={styles.runCard}>
+                <div
+                  key={run.id}
+                  style={{ ...styles.runCard, border: `1px solid ${borderColorValue}` }}
+                >
                   <div style={styles.runHeader}>
                     <span style={{ ...styles.runColorDot, backgroundColor: run.color }} />
                     <div style={styles.runTitle}>{runName}</div>
-                    <div style={styles.runTime}>{s.time.toFixed(3)} s</div>
+                    <div style={styles.runTime}>{run.splitDisplay ?? `${s.time.toFixed(3)} s`}</div>
                   </div>
 
                   <div style={styles.grid}>

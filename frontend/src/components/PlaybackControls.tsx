@@ -95,7 +95,7 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           style={styles.iconButton}
           title="Reset to start"
         >
-          ⏮
+          ↺
         </button>
 
         {/* Step Back Button */}
@@ -104,7 +104,7 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           style={styles.iconButton}
           title="Step back 0.1s"
         >
-          ⏪
+          ‹
         </button>
 
         {/* Play/Pause Button */}
@@ -113,7 +113,7 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           style={styles.playButton}
           title={state.isPlaying ? 'Pause' : 'Play'}
         >
-          {state.isPlaying ? '⏸' : '▶'}
+          {state.isPlaying ? '❚❚' : '▶'}
         </button>
 
         {/* Step Forward Button */}
@@ -122,7 +122,7 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           style={styles.iconButton}
           title="Step forward 0.1s"
         >
-          ⏩
+          ›
         </button>
 
         {/* Time Display */}
@@ -142,7 +142,7 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           }}
           title={state.looping ? 'Loop enabled' : 'Loop disabled'}
         >
-          🔁
+          ⟳
         </button>
       </div>
 

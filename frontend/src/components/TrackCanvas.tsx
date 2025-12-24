@@ -79,7 +79,7 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<Point | null>(null);
-  const [mapImage, setMapImage] = useState<MapImage | null>(null);
+  const [mapImages, setMapImages] = useState<MapImage[]>([]);
 
   // Resize observer
   useEffect(() => {
@@ -118,10 +118,10 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
     [viewport, size]
   );
 
-  // Load map tile around master run
+  // Load map tiles around master run (3x3)
   useEffect(() => {
     if (!mapOverlay?.enabled || !masterRun) {
-      setMapImage(null);
+      setMapImages([]);
       return;
     }
 
@@ -133,32 +133,48 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
     const ytile =
       ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
 
-    const tileX = Math.floor(xtile);
-    const tileY = Math.floor(ytile);
+    const centerTileX = Math.floor(xtile);
+    const centerTileY = Math.floor(ytile);
 
-    // meters per pixel at this latitude
     const earthRadius = 6378137;
     const metersPerPixel =
       (Math.cos(latRad) * 2 * Math.PI * earthRadius) / (256 * n);
 
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      setMapImage({
-        img,
-        tileX,
-        tileY,
-        centerPx: { x: xtile * 256, y: ytile * 256 },
-        metersPerPixel,
-      });
-    };
-    img.onerror = () => setMapImage(null);
     const provider = (mapOverlay as any).provider || 'osm';
-    const src =
-      provider === 'sat'
-        ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${tileY}/${tileX}`
-        : `https://tile.openstreetmap.org/${zoom}/${tileX}/${tileY}.png`;
-    img.src = src;
+
+    const toLoad: MapImage[] = [];
+    const centerPx = { x: xtile * 256, y: ytile * 256 };
+
+    const loaders: Promise<void>[] = [];
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const tileX = centerTileX + dx;
+        const tileY = centerTileY + dy;
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        const src =
+          provider === 'sat'
+            ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${tileY}/${tileX}`
+            : `https://tile.openstreetmap.org/${zoom}/${tileX}/${tileY}.png`;
+        const p = new Promise<void>((resolve) => {
+          img.onload = () => {
+            toLoad.push({
+              img,
+              tileX,
+              tileY,
+              centerPx,
+              metersPerPixel,
+            });
+            resolve();
+          };
+          img.onerror = () => resolve();
+        });
+        img.src = src;
+        loaders.push(p);
+      }
+    }
+
+    Promise.all(loaders).then(() => setMapImages(toLoad));
   }, [mapOverlay?.enabled, mapOverlay?.zoom, mapOverlay?.provider, masterRun?.metadata.origin]);
 
   // Render
@@ -174,28 +190,28 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
     ctx.fillRect(0, 0, size.width, size.height);
 
     // Map overlay (draw first)
-    if (mapOverlay?.enabled && masterRun && mapImage) {
-      const { img, tileX, tileY, centerPx, metersPerPixel } = mapImage;
-
-      const tileOriginPxX = tileX * 256;
-      const tileOriginPxY = tileY * 256;
-      const dxPx = tileOriginPxX - centerPx.x;
-      const dyPx = tileOriginPxY - centerPx.y;
-      const worldLeft = dxPx * metersPerPixel;
-      const worldTop = -dyPx * metersPerPixel;
-      const worldWidth = 256 * metersPerPixel;
-      const worldHeight = 256 * metersPerPixel;
-
-      const topLeft = worldToScreen(worldLeft, worldTop);
-      const bottomRight = worldToScreen(
-        worldLeft + worldWidth,
-        worldTop - worldHeight
-      );
-      const drawW = bottomRight.x - topLeft.x;
-      const drawH = bottomRight.y - topLeft.y;
-
+    if (mapOverlay?.enabled && masterRun && mapImages.length > 0) {
       ctx.globalAlpha = 0.9;
-      ctx.drawImage(img, topLeft.x, topLeft.y, drawW, drawH);
+      mapImages.forEach(({ img, tileX, tileY, centerPx, metersPerPixel }) => {
+        const tileOriginPxX = tileX * 256;
+        const tileOriginPxY = tileY * 256;
+        const dxPx = tileOriginPxX - centerPx.x;
+        const dyPx = tileOriginPxY - centerPx.y;
+        const worldLeft = dxPx * metersPerPixel;
+        const worldTop = -dyPx * metersPerPixel;
+        const worldWidth = 256 * metersPerPixel;
+        const worldHeight = 256 * metersPerPixel;
+
+        const topLeft = worldToScreen(worldLeft, worldTop);
+        const bottomRight = worldToScreen(
+          worldLeft + worldWidth,
+          worldTop - worldHeight
+        );
+        const drawW = bottomRight.x - topLeft.x;
+        const drawH = bottomRight.y - topLeft.y;
+
+        ctx.drawImage(img, topLeft.x, topLeft.y, drawW, drawH);
+      });
       ctx.globalAlpha = 1.0;
     }
 
