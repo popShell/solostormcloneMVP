@@ -6,6 +6,7 @@ Canonicalization happens in app.services.canonicalizer.
 """
 
 import re
+import io
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Protocol
@@ -45,8 +46,26 @@ COLUMN_MAPPINGS = {
     "speed_kph": ["KPH", "kph", "Speed (KPH)", "speed_kph", "Speed (km/h)"],
     "speed_ms": ["Speed (m/s)", "speed_ms", "Speed", "speed"],
     # Acceleration columns (G-force)
-    "accel_x": ["Accel_X", "accel_x", "AccelX", "Accelerometer X", "X"],
-    "accel_y": ["Accel_Y", "accel_y", "AccelY", "Accelerometer Y", "Y"],
+    "accel_x": [
+        "Accel_X",
+        "accel_x",
+        "AccelX",
+        "Accelerometer X",
+        "X",
+        # RaceChrono exports
+        "longitudinal_acc",
+        "x_acc",
+    ],
+    "accel_y": [
+        "Accel_Y",
+        "accel_y",
+        "AccelY",
+        "Accelerometer Y",
+        "Y",
+        # RaceChrono exports
+        "lateral_acc",
+        "y_acc",
+    ],
     # Yaw rate / gyro Z
     "yaw_rate": [
         "YawRate",
@@ -56,6 +75,8 @@ COLUMN_MAPPINGS = {
         "Gyro Z",
         "Gyro Z (deg/s)",
         "Gyro Z (rad/s)",
+        # RaceChrono exports
+        "z_rate_of_rotation",
     ],
     # Heading
     "heading": ["Heading", "heading", "HEADING", "Bearing", "bearing"],
@@ -110,20 +131,60 @@ class TrackAddictParser:
         )
 
     def _read_csv(self, filepath: Path) -> pd.DataFrame:
+        # Read the whole file once so we can detect non-standard headers
         with open(filepath, "r", encoding="utf-8-sig") as f:
-            first_line = f.readline().strip()
+            lines = f.read().splitlines()
 
-        skip_rows = 0
+        if not lines:
+            return pd.DataFrame()
+
+        first_line = lines[0].strip()
+
+        # RaceRender export: header lines are comments starting with '#'
         if first_line.startswith("# RaceRender"):
-            with open(filepath, "r", encoding="utf-8-sig") as f:
-                for i, line in enumerate(f):
-                    if not line.strip().startswith("#"):
-                        skip_rows = i
-                        break
+            skip_rows = 0
+            for i, line in enumerate(lines):
+                if not line.strip().startswith("#"):
+                    skip_rows = i
+                    break
+            df = pd.read_csv(filepath, skiprows=skip_rows)
+            df.columns = df.columns.str.strip()
+            return df
 
-        df = pd.read_csv(filepath, skiprows=skip_rows)
+        # RaceChrono export: metadata block followed by a header row beginning with 'timestamp'
+        header_idx = self._find_header_line(lines)
+        if header_idx is not None and header_idx > 0:
+            data_start = self._find_data_start(lines, header_idx)
+            cleaned = "\n".join([lines[header_idx]] + lines[data_start:])
+            df = pd.read_csv(io.StringIO(cleaned))
+            df.columns = df.columns.str.strip()
+            return df
+
+        # Fallback: assume simple CSV with header on first line
+        df = pd.read_csv(filepath)
         df.columns = df.columns.str.strip()
         return df
+
+    def _find_header_line(self, lines: list[str]) -> Optional[int]:
+        """Locate the line index that contains the actual CSV header."""
+        header_candidates = {"timestamp", "time", "gps time", "gps_time", "gpstime"}
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            first_cell = stripped.split(",")[0].strip().lower()
+            if first_cell in header_candidates:
+                return i
+        return None
+
+    def _find_data_start(self, lines: list[str], header_idx: int) -> int:
+        """Find the first line after header that looks like numeric data."""
+        numeric = re.compile(r"^-?\d+(?:\.\d+)?$")
+        for i in range(header_idx + 1, len(lines)):
+            first_cell = lines[i].split(",")[0].strip()
+            if first_cell and numeric.match(first_cell):
+                return i
+        return header_idx + 1
 
     def _map_columns(self, columns: list[str]) -> dict[str, Optional[str]]:
         col_map: dict[str, Optional[str]] = {}

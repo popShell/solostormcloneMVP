@@ -16,6 +16,8 @@ interface RunListProps {
   onRunToggle: (runId: string, selected: boolean) => void;
   onVisibilityToggle?: (runId: string, visible: boolean) => void;
   onRefresh: () => void;
+  displayNames?: Record<string, string>;
+  onRename?: (runId: string, name: string) => void;
 }
 
 export const RunList: React.FC<RunListProps> = ({
@@ -26,6 +28,8 @@ export const RunList: React.FC<RunListProps> = ({
   error,
   onRunToggle,
   onRefresh,
+  displayNames = {},
+  onRename,
 }) => {
   const formatDuration = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -56,6 +60,9 @@ export const RunList: React.FC<RunListProps> = ({
             const isSelected = selectedRuns.has(run.id);
             const isLoadingRun = loadingRuns.has(run.id);
 
+            const displayName = displayNames[run.id] || run.name;
+            const truncated =
+              displayName.length > 20 ? `${displayName.slice(0, 20)}…` : displayName;
             return (
               <div
                 key={run.id}
@@ -75,7 +82,22 @@ export const RunList: React.FC<RunListProps> = ({
                   )}
                 </div>
                 <div style={styles.runInfo}>
-                  <div style={styles.runName}>{run.name}</div>
+                  <div style={styles.runName} title={displayName}>
+                    {truncated}
+                    {onRename && (
+                      <button
+                        style={styles.renameBtn}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const next = window.prompt('Rename run display', displayName) || '';
+                          if (next.trim()) onRename(run.id, next.trim());
+                        }}
+                        title="Rename"
+                      >
+                        ✎
+                      </button>
+                    )}
+                  </div>
                   <div style={styles.runMeta}>
                     {formatDuration(run.duration_s)} • {run.sample_count} samples
                   </div>
@@ -154,6 +176,16 @@ const styles: Record<string, React.CSSProperties> = {
   runName: {
     fontSize: '14px',
     fontWeight: 500,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+  },
+  renameBtn: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--muted)',
+    cursor: 'pointer',
+    padding: '0 4px',
   },
   runMeta: {
     fontSize: '12px',

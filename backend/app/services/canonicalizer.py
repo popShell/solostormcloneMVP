@@ -7,6 +7,7 @@ Normalizes units, coordinate frames, and validity masks.
 from __future__ import annotations
 
 import math
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -27,6 +28,8 @@ from app.utils.coordinates import gps_to_enu, compute_heading_from_positions
 
 
 MAX_G = 4.5  # hard validation limit (G)
+START_G_THRESHOLD = float(os.getenv("AUTOCROSS_START_G", "0.25"))  # g to trim leading idle
+ANCHOR_START_XY = os.getenv("AUTOCROSS_ANCHOR_START_XY", "1") not in ("0", "false", "False")
 
 
 def canonicalize_raw(
@@ -101,6 +104,47 @@ def canonicalize_raw(
     total_g = np.where(valid_total, total_g, np.nan)
     validity["total_g"] = valid_total
 
+    # Trim leading samples until car starts moving (hits threshold G)
+    (
+        timestamps,
+        enu_east,
+        enu_north,
+        enu_up,
+        speed,
+        heading,
+        yaw_rate,
+        ax,
+        ay,
+        gps_accuracy,
+        gps_update,
+        lap_number,
+        total_g,
+        validity,
+    ) = _trim_leading_idle(
+        START_G_THRESHOLD,
+        timestamps,
+        enu_east,
+        enu_north,
+        enu_up,
+        speed,
+        heading,
+        yaw_rate,
+        ax,
+        ay,
+        _safe_array(raw.gps_accuracy, n_samples),
+        _safe_bool_array(raw.gps_update, n_samples),
+        raw.lap_number,
+        total_g,
+        validity,
+    )
+
+    n_samples = len(timestamps)
+    duration_s = float(timestamps[-1] - timestamps[0]) if n_samples > 1 else 0.0
+    sample_rate_hz = n_samples / max(duration_s, 0.001)
+
+    # Anchor start position to (0,0) so different runs overlay at launch line
+    enu_east, enu_north, validity = _anchor_start_position(enu_east, enu_north, validity)
+
     # Channel metadata
     channel_info = {
         "x": ChannelInfo(unit="m", frame=ReferenceFrame.GLOBAL, provenance=DataProvenance.DERIVED),
@@ -118,8 +162,6 @@ def canonicalize_raw(
     has_speed = bool(np.any(validity["speed"]))
 
     run_id = _generate_id(raw.source_file)
-    duration_s = float(timestamps[-1] - timestamps[0]) if n_samples > 1 else 0.0
-    sample_rate_hz = n_samples / max(duration_s, 0.001)
 
     metadata = RunMetadata(
         id=run_id,
@@ -153,9 +195,9 @@ def canonicalize_raw(
         yaw_rate=np.where(validity["yaw_rate"], yaw_rate, np.nan),
         ax_body=ax,
         ay_body=ay,
-        gps_accuracy=_safe_array(raw.gps_accuracy, n_samples),
-        gps_update=_safe_bool_array(raw.gps_update, n_samples),
-        lap_number=raw.lap_number,
+        gps_accuracy=gps_accuracy,
+        gps_update=gps_update,
+        lap_number=lap_number,
         validity=validity,
         channel_info=channel_info,
     )
@@ -230,6 +272,133 @@ def _normalize_yaw_rate(raw: RawTelemetry, n_samples: int) -> tuple[NDArray[np.f
     if unit == "rad/s":
         yaw = np.degrees(yaw)
     return yaw, (DataProvenance.MEASURED if not np.all(np.isnan(yaw)) else DataProvenance.DERIVED)
+
+
+def _anchor_start_position(
+    x: NDArray[np.float64],
+    y: NDArray[np.float64],
+    validity: dict[str, NDArray[np.bool_]],
+):
+    """
+    Shift the trajectory so the first valid GPS sample is at (0,0).
+    """
+    if not ANCHOR_START_XY:
+        return x, y, validity
+
+    valid_pos = validity.get("x", np.zeros_like(x, dtype=bool)) & validity.get("y", np.zeros_like(y, dtype=bool))
+    if not np.any(valid_pos):
+        return x, y, validity
+
+    first_idx = int(np.argmax(valid_pos))  # first True index
+    x0, y0 = x[first_idx], y[first_idx]
+
+    if math.isnan(x0) or math.isnan(y0):
+        return x, y, validity
+
+    x_shifted = x - x0
+    y_shifted = y - y0
+
+    return x_shifted, y_shifted, validity
+
+
+def _trim_leading_idle(
+    threshold_g: float,
+    timestamps: NDArray[np.float64],
+    x: NDArray[np.float64],
+    y: NDArray[np.float64],
+    z: NDArray[np.float64],
+    speed: NDArray[np.float64],
+    heading: NDArray[np.float64],
+    yaw_rate: NDArray[np.float64],
+    ax: NDArray[np.float64],
+    ay: NDArray[np.float64],
+    gps_accuracy: NDArray[np.float64],
+    gps_update: NDArray[np.bool_],
+    lap_number: Optional[NDArray[np.int32]],
+    total_g: NDArray[np.float64],
+    validity: dict[str, NDArray[np.bool_]],
+):
+    """
+    Drop leading samples until total G exceeds threshold.
+    Keeps alignment across all channels and re-zeroes timestamps.
+    """
+    if threshold_g <= 0 or len(timestamps) == 0:
+        return (
+            timestamps,
+            x,
+            y,
+            z,
+            speed,
+            heading,
+            yaw_rate,
+            ax,
+            ay,
+            gps_accuracy,
+            gps_update,
+            lap_number,
+            total_g,
+            validity,
+        )
+
+    start_idx = None
+    for i, g in enumerate(total_g):
+        if not math.isnan(g) and g >= threshold_g:
+            start_idx = i
+            break
+
+    if start_idx is None or start_idx == 0:
+        return (
+            timestamps,
+            x,
+            y,
+            z,
+            speed,
+            heading,
+            yaw_rate,
+            ax,
+            ay,
+            gps_accuracy,
+            gps_update,
+            lap_number,
+            total_g,
+            validity,
+        )
+
+    sl = slice(start_idx, None)
+    def _trim(arr):
+        return arr[sl] if arr is not None else None
+
+    timestamps = timestamps[sl] - timestamps[sl][0]
+    x = _trim(x)
+    y = _trim(y)
+    z = _trim(z)
+    speed = _trim(speed)
+    heading = _trim(heading)
+    yaw_rate = _trim(yaw_rate)
+    ax = _trim(ax)
+    ay = _trim(ay)
+    gps_accuracy = _trim(gps_accuracy)
+    gps_update = _trim(gps_update)
+    lap_number = _trim(lap_number) if lap_number is not None else None
+    total_g = _trim(total_g)
+    validity = {k: _trim(v) for k, v in validity.items()}
+
+    return (
+        timestamps,
+        x,
+        y,
+        z,
+        speed,
+        heading,
+        yaw_rate,
+        ax,
+        ay,
+        gps_accuracy,
+        gps_update,
+        lap_number,
+        total_g,
+        validity,
+    )
 
 
 def _derive_speed(

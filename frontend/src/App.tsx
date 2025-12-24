@@ -9,9 +9,18 @@ import { PlaybackControls } from '@/components/PlaybackControls';
 import { VisualizationPanel } from '@/components/VisualizationPanel';
 import CourseEditorPage from '@/components/CourseEditorPage';
 import { PlaybackTelemetryInspector } from '@/components/PlaybackTelemetryInspector';
+import { SectorInspector } from '@/components/SectorInspector';
 import { useRuns, useRunData, usePlayback, useViewport } from '@/hooks';
-import type { DisplayUnits, VisualizationSettings, ViewportState } from '@/types';
-import { RUN_COLORS } from '@/types';
+import type {
+  DisplayUnits,
+  VisualizationSettings,
+  ViewportState,
+  MapOverlaySettings,
+  MarkerMode,
+  TrackMarker,
+  SectorMarker,
+} from '@/types';
+import { RUN_COLOR_PALETTES } from '@/types';
 
 type AppView = 'telemetry' | 'course-editor';
 
@@ -47,6 +56,13 @@ const INITIAL_DISPLAY_UNITS: DisplayUnits = {
   yawRate: 'deg_s',
 };
 
+const INITIAL_MAP_SETTINGS: MapOverlaySettings = {
+  enabled: false,
+  zoom: 17,
+  masterRunId: undefined,
+  provider: 'sat',
+};
+
 export const App: React.FC = () => {
   // Current view
   const [currentView, setCurrentView] = useState<AppView>('telemetry');
@@ -69,6 +85,15 @@ export const App: React.FC = () => {
   // Visualization settings
   const [visSettings, setVisSettings] = useState<VisualizationSettings>(INITIAL_VIS_SETTINGS);
   const [displayUnits, setDisplayUnits] = useState<DisplayUnits>(INITIAL_DISPLAY_UNITS);
+  const [mapSettings, setMapSettings] = useState<MapOverlaySettings>(INITIAL_MAP_SETTINGS);
+  const [markerMode, setMarkerMode] = useState<MarkerMode>('none');
+  const [startMarker, setStartMarker] = useState<TrackMarker | null>(null);
+  const [finishMarker, setFinishMarker] = useState<TrackMarker | null>(null);
+  const [sectors, setSectors] = useState<SectorMarker[]>([]);
+  const [colorPaletteId, setColorPaletteId] = useState<string>('high_contrast');
+  const [startAngleDeg, setStartAngleDeg] = useState<number>(0);
+  const [finishAngleDeg, setFinishAngleDeg] = useState<number>(0);
+  const [displayNames, setDisplayNames] = useState<Record<string, string>>({});
 
   // Calculate max duration from loaded runs
   const maxDuration = useMemo(() => {
@@ -142,6 +167,112 @@ export const App: React.FC = () => {
       .filter((r): r is NonNullable<typeof r> => r !== null);
   }, [visibleRuns, loadedRuns, currentSamples]);
 
+  // Determine master run for anchoring/map overlay
+  const masterRunData = useMemo(() => {
+    if (mapSettings.masterRunId) {
+      const loaded = loadedRuns.get(mapSettings.masterRunId);
+      if (loaded) return loaded.data;
+    }
+    const fallbackId = Array.from(selectedRuns)[0];
+    return fallbackId ? loadedRuns.get(fallbackId)?.data : undefined;
+  }, [mapSettings.masterRunId, loadedRuns, selectedRuns]);
+
+  const currentPalette =
+    RUN_COLOR_PALETTES.find((p) => p.id === colorPaletteId)?.colors ||
+    RUN_COLOR_PALETTES[0].colors;
+
+  // Handle marker placement clicks
+  const handleWorldClick = useCallback(
+    (pt: { x: number; y: number }) => {
+      if (markerMode === 'set_start') {
+        setStartMarker({ x: pt.x, y: pt.y, label: 'Start', angleDeg: startAngleDeg });
+        setMarkerMode('none');
+      } else if (markerMode === 'set_finish') {
+        setFinishMarker({ x: pt.x, y: pt.y, label: 'Finish', angleDeg: finishAngleDeg });
+        setMarkerMode('none');
+      } else if (markerMode === 'add_sector') {
+        setSectors((prev) => [
+          ...prev,
+          { id: prev.length + 1, x: pt.x, y: pt.y, label: `S${prev.length + 1}` },
+        ]);
+        setMarkerMode('none');
+      }
+    },
+    [markerMode]
+  );
+
+  const clearMarkers = useCallback(() => {
+    setStartMarker(null);
+    setFinishMarker(null);
+    setStartAngleDeg(0);
+    setFinishAngleDeg(0);
+    setSectors([]);
+  }, []);
+
+  const clearSectors = useCallback(() => setSectors([]), []);
+
+  // keep marker angles in sync with sliders
+  useEffect(() => {
+    setStartMarker((prev) => (prev ? { ...prev, angleDeg: startAngleDeg } : prev));
+  }, [startAngleDeg]);
+  useEffect(() => {
+    setFinishMarker((prev) => (prev ? { ...prev, angleDeg: finishAngleDeg } : prev));
+  }, [finishAngleDeg]);
+
+  // Compute rough sector times using playback samples (nearest point to marker order)
+  const sectorResults = useMemo(() => {
+    const markers: TrackMarker[] = [];
+    if (startMarker) markers.push(startMarker);
+    markers.push(...sectors);
+    if (finishMarker) markers.push(finishMarker);
+    if (markers.length < 2) return [];
+
+    const results: {
+      runId: string;
+      name: string;
+      splits: (number | null)[];
+      total: number | null;
+    }[] = [];
+
+    visibleRunData.forEach((run, idx) => {
+      const samples = run.playback?.samples || [];
+      if (!samples.length) return;
+      const times: number[] = [];
+      markers.forEach((m) => {
+        let bestDist = Number.POSITIVE_INFINITY;
+        let bestTime = NaN;
+        for (const s of samples) {
+          const dx = s.x - m.x;
+          const dy = s.y - m.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < bestDist) {
+            bestDist = d2;
+            bestTime = s.time;
+          }
+        }
+        times.push(Number.isFinite(bestTime) ? bestTime : NaN);
+      });
+
+      const splits = times.map((t, i) =>
+        i === 0 || !Number.isFinite(t) || !Number.isFinite(times[i - 1])
+          ? null
+          : t - times[i - 1]
+      );
+
+      results.push({
+        runId: run.id,
+        name: displayNames[run.id] || run.data.metadata.name,
+        splits,
+        total:
+          Number.isFinite(times[0]) && Number.isFinite(times[times.length - 1])
+            ? times[times.length - 1] - times[0]
+            : null,
+      });
+    });
+
+    return results;
+  }, [visibleRunData, startMarker, finishMarker, sectors, displayNames]);
+
   // Handle fit to runs button
   const handleFitToRuns = useCallback(() => {
     const runsToFit = Array.from(selectedRuns)
@@ -168,6 +299,10 @@ export const App: React.FC = () => {
           onRunToggle={handleRunToggle}
           onVisibilityToggle={handleVisibilityToggle}
           onRefresh={refresh}
+          displayNames={displayNames}
+          onRename={(id, name) =>
+            setDisplayNames((prev) => ({ ...prev, [id]: name || runs.find((r) => r.id === id)?.name || id }))
+          }
         />
       </div>
 
@@ -181,15 +316,29 @@ export const App: React.FC = () => {
             onViewportChange={setViewport}
             settings={visSettings}
             currentTime={playbackState.currentTime}
+            mapOverlay={mapSettings}
+            masterRun={masterRunData}
+            markerMode={markerMode}
+            onWorldClick={handleWorldClick}
+            startLine={startMarker}
+            finishLine={finishMarker}
+            sectors={sectors}
+            runColors={currentPalette}
           />
           <PlaybackTelemetryInspector
             runs={visibleRunData.map((r, idx) => ({
               id: r.id,
-              color: RUN_COLORS[idx % RUN_COLORS.length],
+              color: currentPalette[idx % currentPalette.length],
               data: r.data,
               sample: r.sample,
+              nameOverride: displayNames[r.id],
             }))}
             units={displayUnits}
+          />
+          <SectorInspector
+            results={sectorResults}
+            sectors={sectors}
+            runColors={currentPalette}
           />
         </div>
 
@@ -212,6 +361,24 @@ export const App: React.FC = () => {
           hasRuns={selectedRuns.size > 0}
           units={displayUnits}
           onUnitsChange={setDisplayUnits}
+          runs={runs}
+          loadedRuns={loadedRuns}
+          selectedRuns={selectedRuns}
+          mapSettings={mapSettings}
+          onMapSettingsChange={setMapSettings}
+          markerMode={markerMode}
+          onMarkerModeChange={setMarkerMode}
+          startMarker={startMarker}
+          finishMarker={finishMarker}
+          sectors={sectors}
+          onClearMarkers={clearMarkers}
+          onClearSectors={clearSectors}
+          colorPaletteId={colorPaletteId}
+          onColorPaletteChange={setColorPaletteId}
+          startAngleDeg={startAngleDeg}
+          finishAngleDeg={finishAngleDeg}
+          onStartAngleChange={setStartAngleDeg}
+          onFinishAngleChange={setFinishAngleDeg}
         />
       </div>
     </div>

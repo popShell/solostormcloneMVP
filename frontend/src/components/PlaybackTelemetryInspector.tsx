@@ -8,6 +8,7 @@ interface InspectorRun {
   color: string;
   data: RunData;
   sample?: PlaybackSample;
+  nameOverride?: string;
 }
 
 interface PlaybackTelemetryInspectorProps {
@@ -146,11 +147,12 @@ export function PlaybackTelemetryInspector({ runs, units }: PlaybackTelemetryIns
             visibleRuns.map((run) => {
               const s = run.sample!;
               const valid = s.valid ?? {};
+              const runName = run.nameOverride || run.data.metadata.name;
               return (
                 <div key={run.id} style={styles.runCard}>
                   <div style={styles.runHeader}>
                     <span style={{ ...styles.runColorDot, backgroundColor: run.color }} />
-                    <div style={styles.runTitle}>{run.data.metadata.name}</div>
+                    <div style={styles.runTitle}>{runName}</div>
                     <div style={styles.runTime}>{s.time.toFixed(3)} s</div>
                   </div>
 

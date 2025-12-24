@@ -4,7 +4,16 @@
  */
 
 import React, { useRef, useEffect, useCallback, useState } from 'react';
-import type { ViewportState, VisualizationSettings, PlaybackSample, RunData } from '@/types';
+import type {
+  ViewportState,
+  VisualizationSettings,
+  PlaybackSample,
+  RunData,
+  MapOverlaySettings,
+  MarkerMode,
+  TrackMarker,
+  SectorMarker,
+} from '@/types';
 import { RUN_COLORS } from '@/types';
 
 interface RunDisplay {
@@ -20,6 +29,14 @@ interface TrackCanvasProps {
   onViewportChange: (viewport: ViewportState) => void;
   settings: VisualizationSettings;
   currentTime?: number;
+  mapOverlay?: MapOverlaySettings;
+  masterRun?: RunData;
+  markerMode?: MarkerMode;
+  onWorldClick?: (point: { x: number; y: number }) => void;
+  startLine?: TrackMarker | null;
+  finishLine?: TrackMarker | null;
+  sectors?: SectorMarker[];
+  runColors?: string[];
 }
 
 interface Point {
@@ -35,17 +52,34 @@ const CANVAS_THEME = {
   border: '#2b3242',
 };
 
+interface MapImage {
+  img: HTMLImageElement;
+  tileX: number;
+  tileY: number;
+  centerPx: { x: number; y: number };
+  metersPerPixel: number;
+}
+
 export const TrackCanvas: React.FC<TrackCanvasProps> = ({
   runs,
   viewport,
   onViewportChange,
   settings,
+  mapOverlay,
+  masterRun,
+  markerMode = 'none',
+  onWorldClick,
+  startLine,
+  finishLine,
+  sectors = [],
+  runColors,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<Point | null>(null);
+  const [mapImage, setMapImage] = useState<MapImage | null>(null);
 
   // Resize observer
   useEffect(() => {
@@ -75,6 +109,58 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
     [viewport, size]
   );
 
+  const screenToWorld = useCallback(
+    (screenX: number, screenY: number): Point => {
+      const worldX = (screenX - size.width / 2) / viewport.scale + viewport.centerX;
+      const worldY = -(screenY - size.height / 2) / viewport.scale + viewport.centerY;
+      return { x: worldX, y: worldY };
+    },
+    [viewport, size]
+  );
+
+  // Load map tile around master run
+  useEffect(() => {
+    if (!mapOverlay?.enabled || !masterRun) {
+      setMapImage(null);
+      return;
+    }
+
+    const { lat, lon } = masterRun.metadata.origin;
+    const zoom = mapOverlay.zoom ?? 17;
+    const n = Math.pow(2, zoom);
+    const latRad = (lat * Math.PI) / 180;
+    const xtile = ((lon + 180) / 360) * n;
+    const ytile =
+      ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
+
+    const tileX = Math.floor(xtile);
+    const tileY = Math.floor(ytile);
+
+    // meters per pixel at this latitude
+    const earthRadius = 6378137;
+    const metersPerPixel =
+      (Math.cos(latRad) * 2 * Math.PI * earthRadius) / (256 * n);
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      setMapImage({
+        img,
+        tileX,
+        tileY,
+        centerPx: { x: xtile * 256, y: ytile * 256 },
+        metersPerPixel,
+      });
+    };
+    img.onerror = () => setMapImage(null);
+    const provider = (mapOverlay as any).provider || 'osm';
+    const src =
+      provider === 'sat'
+        ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${tileY}/${tileX}`
+        : `https://tile.openstreetmap.org/${zoom}/${tileX}/${tileY}.png`;
+    img.src = src;
+  }, [mapOverlay?.enabled, mapOverlay?.zoom, mapOverlay?.provider, masterRun?.metadata.origin]);
+
   // Render
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -87,13 +173,40 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
     ctx.fillStyle = CANVAS_THEME.bg;
     ctx.fillRect(0, 0, size.width, size.height);
 
+    // Map overlay (draw first)
+    if (mapOverlay?.enabled && masterRun && mapImage) {
+      const { img, tileX, tileY, centerPx, metersPerPixel } = mapImage;
+
+      const tileOriginPxX = tileX * 256;
+      const tileOriginPxY = tileY * 256;
+      const dxPx = tileOriginPxX - centerPx.x;
+      const dyPx = tileOriginPxY - centerPx.y;
+      const worldLeft = dxPx * metersPerPixel;
+      const worldTop = -dyPx * metersPerPixel;
+      const worldWidth = 256 * metersPerPixel;
+      const worldHeight = 256 * metersPerPixel;
+
+      const topLeft = worldToScreen(worldLeft, worldTop);
+      const bottomRight = worldToScreen(
+        worldLeft + worldWidth,
+        worldTop - worldHeight
+      );
+      const drawW = bottomRight.x - topLeft.x;
+      const drawH = bottomRight.y - topLeft.y;
+
+      ctx.globalAlpha = 0.9;
+      ctx.drawImage(img, topLeft.x, topLeft.y, drawW, drawH);
+      ctx.globalAlpha = 1.0;
+    }
+
     // Draw grid
+    const gridAlpha = mapOverlay?.provider === 'sat' ? 0.7 : 1.0;
     const gridSizeMinorPx = 1 * viewport.scale;
     const showMinor = gridSizeMinorPx >= 14;
 
     // Minor grid (1m)
     if (showMinor) {
-      ctx.strokeStyle = CANVAS_THEME.grid;
+      ctx.strokeStyle = `rgba(34, 40, 52, ${gridAlpha})`;
       ctx.lineWidth = 1;
       const gridSize = 1 * viewport.scale;
       const offsetX = (size.width / 2 - viewport.centerX * viewport.scale) % gridSize;
@@ -114,7 +227,7 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
     }
 
     // Major grid (10m)
-    ctx.strokeStyle = CANVAS_THEME.gridMajor;
+    ctx.strokeStyle = `rgba(47, 55, 71, ${gridAlpha})`;
     ctx.lineWidth = 1.5;
     const gridSize = 10 * viewport.scale;
     const offsetX = (size.width / 2 - viewport.centerX * viewport.scale) % gridSize;
@@ -140,7 +253,8 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
       const { x, y } = run.data;
       if (!x || !y || x.length < 2) return;
 
-      ctx.strokeStyle = RUN_COLORS[idx % RUN_COLORS.length];
+      const palette = runColors && runColors.length > 0 ? runColors : RUN_COLORS;
+      ctx.strokeStyle = palette[idx % palette.length];
       ctx.lineWidth = settings.pathWidth || 3;
       ctx.beginPath();
 
@@ -160,7 +274,8 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
       // Draw current position marker
       if (run.sample && run.sample.x !== undefined && run.sample.y !== undefined) {
         const pos = worldToScreen(run.sample.x, run.sample.y);
-        ctx.fillStyle = RUN_COLORS[idx % RUN_COLORS.length];
+        const palette = runColors && runColors.length > 0 ? runColors : RUN_COLORS;
+        ctx.fillStyle = palette[idx % palette.length];
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, 8, 0, Math.PI * 2);
         ctx.fill();
@@ -168,6 +283,45 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
         ctx.lineWidth = 2;
         ctx.stroke();
       }
+    });
+
+    // Draw start/finish lines and sectors
+    const drawGate = (pt: TrackMarker | null | undefined, color: string, label: string) => {
+      if (!pt) return;
+      const gateLengthM = 6.096; // 20 ft
+      const angle = ((pt.angleDeg ?? 0) * Math.PI) / 180;
+      const dx = Math.cos(angle) * (gateLengthM / 2);
+      const dy = Math.sin(angle) * (gateLengthM / 2);
+      const p1 = worldToScreen(pt.x - dx, pt.y - dy);
+      const p2 = worldToScreen(pt.x + dx, pt.y + dy);
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+
+      ctx.fillStyle = color;
+      ctx.font = '13px sans-serif';
+      const center = worldToScreen(pt.x, pt.y);
+      ctx.fillText(label, center.x + 10, center.y - 10);
+    };
+
+    drawGate(startLine, '#34c759', 'Start');
+    drawGate(finishLine, '#ff3b30', 'Finish');
+
+    sectors.forEach((s) => {
+      const p = worldToScreen(s.x, s.y);
+      const r = 7;
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.font = '12px sans-serif';
+      ctx.fillText(s.label || `S${s.id}`, p.x + 8, p.y - 8);
     });
 
     // Scale bar
@@ -182,7 +336,19 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
     ctx.stroke();
     ctx.font = '12px monospace';
     ctx.fillText(`${scaleMeters}m`, 20 + scalePixels / 2 - 10, size.height - 40);
-  }, [runs, viewport, settings, size, worldToScreen]);
+  }, [
+    runs,
+    viewport,
+    settings,
+    size,
+    worldToScreen,
+    mapOverlay,
+    masterRun,
+    startLine,
+    finishLine,
+    sectors,
+    runColors,
+  ]);
 
   // Mouse handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -202,9 +368,25 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
     setDragStart({ x: e.clientX, y: e.clientY });
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e: React.MouseEvent) => {
+    const start = dragStart;
     setIsDragging(false);
     setDragStart(null);
+
+    if (!onWorldClick || !start || !canvasRef.current) return;
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+    const startX = start.x - rect.left;
+    const startY = start.y - rect.top;
+
+    const dist = Math.hypot(canvasX - startX, canvasY - startY);
+    const clickTol = 4; // px
+    if (dist < clickTol) {
+      const world = screenToWorld(canvasX, canvasY);
+      onWorldClick(world);
+    }
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -225,7 +407,11 @@ export const TrackCanvas: React.FC<TrackCanvasProps> = ({
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
-        style={{ cursor: isDragging ? 'grabbing' : 'grab', display: 'block' }}
+        style={{
+          cursor:
+            isDragging ? 'grabbing' : markerMode === 'none' ? 'grab' : 'crosshair',
+          display: 'block',
+        }}
       />
     </div>
   );
